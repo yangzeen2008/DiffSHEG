@@ -7,7 +7,7 @@ from options.train_options import TrainCompOptions
 # from utils.plot_script import *
 
 from models import MotionTransformer, UniDiffuser
-from trainers import DDPMTrainer_beat, DDPMTrainer_show
+from trainers import DDPMTrainer_beat, DDPMTrainer_show, DDPMTrainer
 from datasets import ShowDataset
 
 from mmcv.runner import get_dist_info, init_dist
