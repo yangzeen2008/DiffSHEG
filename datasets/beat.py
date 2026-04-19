@@ -1,4 +1,6 @@
 import os
+from pathlib import Path
+
 import pickle
 import math
 import shutil
@@ -13,7 +15,8 @@ from loguru import logger
 from collections import defaultdict
 from torch.utils.data import Dataset
 import torch.distributed as dist
-import pyarrow
+import pickle
+import pyarrow  # kept for compatibility checks only
 from sklearn.preprocessing import normalize
 import librosa 
 import datasets.rotation_converter as rot_cvt
@@ -112,8 +115,9 @@ class BeatDataset(Dataset):
                 self.build_cache(preloaded_dir)
             self.lmdb_env = lmdb.open(preloaded_dir, readonly=True, lock=False)
 
-            if args.use_aud_feat or self.opt.expAddHubert or self.opt.addHubert:
-                self.aud_lmdb_env = lmdb.open(self.aud_feat_path, readonly=True, lock=False)
+            # HuBERT npy 文件夹路径（通过 aud_feat_path 直接访问 .npy 文件，不用 LMDB）
+            pass
+
 
             with self.lmdb_env.begin() as txn:
                 self.n_samples = txn.stat()["entries"]    
@@ -151,7 +155,9 @@ class BeatDataset(Dataset):
         pose_files = sorted(glob.glob(os.path.join(self.data_dir, f"{self.pose_rep}") + "/*.bvh"), key=str,)  
         # create db for samples
         map_size = int(1024 * 1024 * 2048 * (self.audio_fps/16000)**3 * 4) * (len(pose_files)/30*(self.pose_fps/15)) * len(self.multi_length_training) * self.multi_length_training[-1] * 2 # in 1024 MB
-        dst_lmdb_env = lmdb.open(out_lmdb_dir, map_size=map_size)
+        map_size = min(map_size, 1024 * 1024 * 1024 * 20)  # 最大 20 GB，兼容 Windows
+        dst_lmdb_env = lmdb.open(out_lmdb_dir, map_size=int(map_size))
+
         n_filtered_out = defaultdict(int)
     
         for pose_file in pose_files:
@@ -163,7 +169,8 @@ class BeatDataset(Dataset):
             sem_each_file = []
             vid_each_file = []
             
-            id_pose = pose_file.split("/")[-1][:-4] #1_wayne_0_1_1
+            id_pose = Path(pose_file).stem  # e.g. 1_wayne_0_1_1  (works on Windows & Linux)
+
             logger.info(colored(f"# ---- Building cache for Pose   {id_pose} ---- #", "blue"))
             with open(pose_file, "r") as pose_data:
                 for j, line in enumerate(pose_data.readlines()):
@@ -278,9 +285,9 @@ class BeatDataset(Dataset):
         pose_each_file = pose_each_file[pose_start:]
         
         round_seconds_skeleton = pose_each_file.shape[0] // self.pose_fps  # assume 1500 frames / 15 fps = 100 s
-        if audio_each_file != []:
+        if len(audio_each_file) > 0:
             round_seconds_audio = len(audio_each_file) // self.audio_fps # assume 16,000,00 / 16,000 = 100 s
-            if facial_each_file != []:
+            if len(facial_each_file) > 0:
                 round_seconds_facial = facial_each_file.shape[0] // self.pose_fps
                 logger.info(f"audio: {round_seconds_skeleton}s, pose: {round_seconds_audio}s, facial: {round_seconds_facial}s")
                 round_seconds_skeleton = min(round_seconds_audio, round_seconds_skeleton, round_seconds_facial)
@@ -311,7 +318,7 @@ class BeatDataset(Dataset):
             logger.info(f"pose from frame {clip_s_f_pose} to {clip_e_f_pose}, length {self.pose_length}")
             logger.info(f"{num_subdivision} clips is expected with stride {self.stride}")
             
-            if audio_each_file != []:
+            if len(audio_each_file) > 0:
                 audio_short_length = math.floor(self.pose_length / self.pose_fps * self.audio_fps)
                 """
                 for audio sr = 16000, fps = 15, pose_length = 34, 
@@ -334,7 +341,7 @@ class BeatDataset(Dataset):
                 fin_idx = start_idx + self.pose_length # 34
                 sample_pose = pose_each_file[start_idx:fin_idx]
                 # print(sample_pose.shape)
-                if audio_each_file != []:
+                if len(audio_each_file) > 0:
                     audio_start = clip_s_f_audio + math.floor(i * self.stride * self.audio_fps / self.pose_fps)
                     audio_end = audio_start + audio_short_length
                     sample_audio = audio_each_file[audio_start:audio_end]
@@ -344,16 +351,16 @@ class BeatDataset(Dataset):
                 else:
                     sample_audio = np.array([-1])
                 
-                sample_facial = facial_each_file[start_idx:fin_idx] if facial_each_file != [] else np.array([-1])
-                sample_word = word_each_file[start_idx:fin_idx] if word_each_file != [] else np.array([-1])
-                sample_emo = emo_each_file[start_idx:fin_idx] if emo_each_file != [] else np.array([-1])
-                sample_sem = sem_each_file[start_idx:fin_idx] if sem_each_file != [] else np.array([-1])
-                sample_vid = np.array(vid_each_file) if vid_each_file != [] else np.array([-1])
+                sample_facial = facial_each_file[start_idx:fin_idx] if len(facial_each_file) > 0 else np.array([-1])
+                sample_word = word_each_file[start_idx:fin_idx] if len(word_each_file) > 0 else np.array([-1])
+                sample_emo = emo_each_file[start_idx:fin_idx] if len(emo_each_file) > 0 else np.array([-1])
+                sample_sem = sem_each_file[start_idx:fin_idx] if len(sem_each_file) > 0 else np.array([-1])
+                sample_vid = np.array(vid_each_file) if len(vid_each_file) > 0 else np.array([-1])
 
                 if sample_pose.any() != None:
                     # filtering motion skeleton data
                     sample_pose, filtering_message = MotionPreprocessor(sample_pose, self.mean_pose).get()
-                    is_correct_motion = (sample_pose != [])
+                    is_correct_motion = len(sample_pose) > 0
                     if is_correct_motion or disable_filtering:
                         sample_pose_list.append(sample_pose)
                         sample_audio_list.append(sample_audio)
@@ -400,8 +407,8 @@ class BeatDataset(Dataset):
                         normalized_pose = self.normalize_pose(pose, self.mean_pose, self.std_pose)
                         normalized_pose_axis_angle = self.normalize_pose(pose_axis_angle, self.mean_pose_axis_angle, self.std_pose_axis_angle)
                         k = "{:005}".format(self.n_out_samples).encode("ascii")
-                        v = [normalized_pose, normalized_pose_axis_angle, audio, mel, facial, word, emo, sem, vid]
-                        v = pyarrow.serialize(v).to_buffer()
+                        v = pickle.dumps([normalized_pose, normalized_pose_axis_angle, audio, mel, facial, word, emo, sem, vid],
+                                         protocol=pickle.HIGHEST_PROTOCOL)
                         txn.put(k, v)
                         self.n_out_samples += 1
         return n_filtered_out
@@ -414,7 +421,7 @@ class BeatDataset(Dataset):
         with self.lmdb_env.begin(write=False) as txn:
             key = "{:005}".format(idx).encode("ascii")
             sample = txn.get(key)
-            sample = pyarrow.deserialize(sample)
+            sample = pickle.loads(sample)
             tar_pose, tar_pose_axis_angle, in_audio, in_mel, in_facial, in_word, emo, sem, vid = sample
             vid = torch.from_numpy(vid.copy()).int()
             emo = torch.from_numpy(emo.copy()).int()
@@ -435,11 +442,10 @@ class BeatDataset(Dataset):
                 in_facial = torch.from_numpy(in_facial.copy()).reshape((in_facial.shape[0], -1)).float()
         
         if self.opt.use_aud_feat or self.opt.expAddHubert or self.opt.addHubert:
-            with self.aud_lmdb_env.begin(write=False) as txn_aud:
-                key = "{:005}".format(idx).encode("ascii")
-                aud_feat = txn_aud.get(key)
-                aud_feat = pyarrow.deserialize(aud_feat)
-                aud_feat = torch.from_numpy(aud_feat.copy()).float() 
+            npy_path = os.path.join(self.aud_feat_path, f"{idx:05d}.npy")
+            aud_feat = np.load(npy_path)
+            aud_feat = torch.from_numpy(aud_feat).float()
+
                 
             if self.opt.use_aud_feat == "interpolate" or self.opt.expAddHubert or self.opt.addHubert:
                 aud_feat = F.interpolate(aud_feat.swapaxes(-1,-2).unsqueeze(0), size=tar_pose.shape[0], mode='linear', align_corners=True).swapaxes(-1,-2).squeeze()
@@ -465,7 +471,7 @@ class MotionPreprocessor:
         assert (self.skeletons is not None)
 
         # filtering
-        if self.skeletons != []:
+        if len(self.skeletons) > 0:
             if self.check_pose_diff():
                 self.skeletons = []
                 self.filtering_message = "pose"
@@ -494,8 +500,8 @@ class MotionPreprocessor:
 
 
     def check_pose_diff(self, verbose=False):
-        diff = np.abs(self.skeletons - self.mean_pose) # 186*1
-        diff = np.mean(diff)
+        # 用全局标准差替代逐维差值，兼容 raw BVH (228 dims) 和裁剪后 (141 dims) 的 mean_pose
+        diff = np.std(self.skeletons)
 
         # th = 0.017
         th = 0.02 #0.02  # exclude 3594

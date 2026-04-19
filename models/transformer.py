@@ -725,7 +725,7 @@ class UniDiffuser(nn.Module):
     
     
     
-    def forward(self, x, timesteps, sqrt_alphas, audio_emb, length, person_id, add_cond={}, pe_type="learnable", y=None):
+    def forward(self, x, timesteps, sqrt_alphas=None, audio_emb=None, length=None, person_id=None, add_cond={}, pe_type="learnable", y=None):
         
         emb = self.time_embed(timestep_embedding(timesteps, self.latent_dim))
         B, T = x.shape[0], x.shape[1]
@@ -746,7 +746,12 @@ class UniDiffuser(nn.Module):
 
         
         self.opt.expCondition_gesture_only = 'pred' 
-        expr_cond = self._predict_xstart_from_eps(expression, timesteps, exp_noise_t.detach(), sqrt_alphas)
+        if sqrt_alphas is not None:
+            # DDPM mode: predict clean expression via eps parameterization
+            expr_cond = self._predict_xstart_from_eps(expression, timesteps, exp_noise_t.detach(), sqrt_alphas)
+        else:
+            # Flow Matching mode: use the predicted noise/velocity as conditioning
+            expr_cond = exp_noise_t.detach()
         audio_emb = torch.cat((audio_emb, expr_cond), dim=-1)
         
         

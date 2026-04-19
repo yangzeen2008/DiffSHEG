@@ -36,6 +36,7 @@ from models.gaussian_diffusion import (
 import datasets.rotation_converter as rot_cvt
 from .loss_factory import get_loss_func
 import soundfile as sf
+from models.flow_matching import FlowMatching
 
 
 class DDPMTrainer(object):
@@ -61,15 +62,20 @@ class DDPMTrainer(object):
         }
 
 
-        self.diffusion = GaussianDiffusion(
-            opt=args,
-            betas=betas,
-            model_mean_type=model_mean_type[args.model_mean_type],
-            model_var_type=ModelVarType.FIXED_SMALL,
-            loss_type=LossType.MSE
-        )
-        
-        if self.opt.ddim:
+        if args.flow_matching:
+            self.diffusion = FlowMatching(args)
+            self.sampler = None
+        else:
+            self.diffusion = GaussianDiffusion(
+                opt=args,
+                betas=betas,
+                model_mean_type=model_mean_type[args.model_mean_type],
+                model_var_type=ModelVarType.FIXED_SMALL,
+                loss_type=LossType.MSE
+            )
+            self.sampler = create_named_schedule_sampler(sampler, self.diffusion)
+
+        if self.opt.ddim and not args.flow_matching:
             self.diffusion_ddim_val = SpacedDiffusion(
                 use_timesteps=space_timesteps(self.diffusion_steps, 'ddim25'),
                 opt=args,
@@ -80,7 +86,6 @@ class DDPMTrainer(object):
                 rescale_timesteps=False,
             )
 
-        self.sampler = create_named_schedule_sampler(sampler, self.diffusion)
         self.sampler_name = sampler
 
         self.huber_loss = get_loss_func("huber_loss")
@@ -134,18 +139,26 @@ class DDPMTrainer(object):
         B, T = x_start.shape[:2]
         
         cur_len = torch.LongTensor([T for ii in range(B)]).to(self.device)
-        t, _ = self.sampler.sample(B, x_start.device)
+
+        if self.opt.flow_matching:
+            t = None
+        else:
+            t, _ = self.sampler.sample(B, x_start.device)
+
+        # In FM mode the model receives y=None; inpainting is handled by
+        # the FM sampler rather than the model's internal outpainting logic.
+        model_y = None if self.opt.flow_matching else inpaint_dict
 
         output = self.diffusion.training_losses(
             model=self.encoder,
             x_start=x_start,
             t=t,
             model_kwargs={
-                "audio_emb": audio_emb, 
-                "length": cur_len, 
+                "audio_emb": audio_emb,
+                "length": cur_len,
                 "person_id": p_id,
                 "add_cond": add_cond,
-                "y": inpaint_dict,
+                "y": model_y,
                 "pe_type": self.opt.PE
             }
         )
@@ -153,10 +166,10 @@ class DDPMTrainer(object):
         self.real_noise = output['target']
         self.fake_noise = output['pred']
 
-        
         self.real_vel = output['target_vel']
         self.fake_vel = output['pred_vel']
-        if self.opt.model_mean_type == 'epsilon':
+        # Always store x0 fields; FM's training_losses() populates them too.
+        if self.opt.model_mean_type == 'epsilon' or self.opt.flow_matching:
             self.real_x0 = output['target_x0']
             self.fake_x0 = output['pred_x0']
 
@@ -173,7 +186,37 @@ class DDPMTrainer(object):
         T = audio_emb.shape[1]
         cur_len = torch.LongTensor([T for ii in range(B)]).to(self.device)
 
-        if self.opt.ddim:
+        if self.opt.flow_matching:
+            fm_model_kwargs = {
+                "audio_emb": audio_emb,
+                "length": cur_len,
+                "person_id": p_id,
+                "add_cond": add_cond,
+                "y": None,
+                "pe_type": self.opt.PE
+            }
+            has_inpaint = (
+                inpaint_dict is not None
+                and inpaint_dict.get('outpainting_mask') is not None
+            )
+            if has_inpaint:
+                output = self.diffusion.sample_with_inpaint(
+                    self.encoder,
+                    (B, T, dim_pose),
+                    model_kwargs=fm_model_kwargs,
+                    inpaint_dict=inpaint_dict,
+                    progress=True,
+                    device=self.device
+                )
+            else:
+                output = self.diffusion.sample(
+                    self.encoder,
+                    (B, T, dim_pose),
+                    model_kwargs=fm_model_kwargs,
+                    progress=True,
+                    device=self.device
+                )
+        elif self.opt.ddim:
             output = self.diffusion_ddim_val.ddim_sample_loop(
                 self.encoder,
                 (B, T, dim_pose),
@@ -205,12 +248,13 @@ class DDPMTrainer(object):
         return output
 
     def backward_G(self):
+        # ------ Primary prediction loss (vector field in FM, noise in DDPM) ------
         if self.opt.expr_weight == 1:
             loss_model_pred = self.mse_criterion(self.fake_noise, self.real_noise).mean(dim=-1)
         else:
-            loss_model_pred = self.mse_criterion(self.fake_noise[..., :self.opt.lower_dim], 
+            loss_model_pred = self.mse_criterion(self.fake_noise[..., :self.opt.lower_dim],
                                               self.real_noise[..., :self.opt.lower_dim]).mean(dim=-1) + \
-                            self.mse_criterion(self.fake_noise[..., self.opt.lower_dim:], 
+                            self.mse_criterion(self.fake_noise[..., self.opt.lower_dim:],
                                               self.real_noise[..., self.opt.lower_dim:]).mean(dim=-1) * \
                             self.opt.expr_weight
         loss_model_pred = self.mse_criterion(self.fake_noise, self.real_noise).mean(dim=-1)
@@ -219,28 +263,43 @@ class DDPMTrainer(object):
         self.final_loss = self.loss_model_pred
         loss_logs = OrderedDict({})
         loss_logs['loss_model_pred'] = self.loss_model_pred.item()
-        
-        
 
-        # if self.opt.model_mean_type == 'start_x' :
-        if self.opt.add_vel_loss and self.epoch > self.opt.vel_loss_start:
-            loss_vel_rec = self.mse_criterion(self.fake_vel, self.real_vel).mean(dim=-1)
-            loss_vel_rec = (loss_vel_rec * self.src_mask[:, :-1]).sum() / self.src_mask[:, :-1].sum()
-            # self.loss_vel_rec = loss_vel_rec
-            self.loss_vel_rec = 100 * loss_vel_rec
-            loss_logs['loss_vel_rec'] = self.loss_vel_rec.item()
-            self.final_loss += loss_vel_rec
-
-            if self.opt.model_mean_type == 'epsilon':
-                if self.opt.sem_rep is not None:
-                    loss_x0_rec = self.huber_loss(self.real_x0*(self.in_sem.unsqueeze(2)+1), self.fake_x0*(self.in_sem.unsqueeze(2)+1))
-                else: 
+        if self.opt.flow_matching:
+            # Skip vel_loss (zero placeholders); optionally add x0 Huber aux loss.
+            if self.opt.add_vel_loss and self.epoch > self.opt.vel_loss_start:
+                if hasattr(self, 'in_sem') and self.in_sem is not None and \
+                        self.opt.sem_rep is not None:
+                    loss_x0_rec = self.huber_loss(
+                        self.real_x0 * (self.in_sem.unsqueeze(2) + 1),
+                        self.fake_x0 * (self.in_sem.unsqueeze(2) + 1)
+                    )
+                else:
                     loss_x0_rec = self.huber_loss(self.real_x0, self.fake_x0)
-                # self.loss_x0_rec = 200 * loss_x0_rec
                 self.loss_x0_rec = 100 * loss_x0_rec
                 loss_logs['loss_x0_rec'] = self.loss_x0_rec.item()
                 self.final_loss += self.loss_x0_rec
-                
+        else:
+            # ------ DDPM auxiliary losses ------
+            if self.opt.add_vel_loss and self.epoch > self.opt.vel_loss_start:
+                loss_vel_rec = self.mse_criterion(self.fake_vel, self.real_vel).mean(dim=-1)
+                loss_vel_rec = (loss_vel_rec * self.src_mask[:, :-1]).sum() / self.src_mask[:, :-1].sum()
+                self.loss_vel_rec = 100 * loss_vel_rec
+                loss_logs['loss_vel_rec'] = self.loss_vel_rec.item()
+                self.final_loss += loss_vel_rec
+
+                if self.opt.model_mean_type == 'epsilon':
+                    if hasattr(self, 'in_sem') and self.in_sem is not None and \
+                            self.opt.sem_rep is not None:
+                        loss_x0_rec = self.huber_loss(
+                            self.real_x0 * (self.in_sem.unsqueeze(2) + 1),
+                            self.fake_x0 * (self.in_sem.unsqueeze(2) + 1)
+                        )
+                    else:
+                        loss_x0_rec = self.huber_loss(self.real_x0, self.fake_x0)
+                    self.loss_x0_rec = 100 * loss_x0_rec
+                    loss_logs['loss_x0_rec'] = self.loss_x0_rec.item()
+                    self.final_loss += self.loss_x0_rec
+
         loss_logs['final_loss'] = self.final_loss.item()
         return loss_logs
 

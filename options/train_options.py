@@ -17,6 +17,9 @@ class TrainCompOptions(BaseOptions):
         self.parser.add_argument('--times', type=int, default=1, help='times of dataset')
 
         self.parser.add_argument('--feat_bias', type=float, default=5, help='Scales for global motion features and foot contact')
+        self.parser.add_argument('--flow_matching', action='store_true', help='Use flow matching instead of DDPM')
+        self.parser.add_argument('--fm_sample_steps', type=int, default=50,
+                                 help='Number of Euler ODE steps for FM sampling (default: 50)')
 
         self.parser.add_argument('--resume', action="store_true", help='Is this trail continued from previous trail?')
 
