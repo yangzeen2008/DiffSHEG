@@ -168,6 +168,10 @@ class DDPMTrainer(object):
 
         self.real_vel = output['target_vel']
         self.fake_vel = output['pred_vel']
+        # FM provides acceleration fields; DDPM does not.
+        if self.opt.flow_matching:
+            self.real_acc = output['target_acc']
+            self.fake_acc = output['pred_acc']
         # Always store x0 fields; FM's training_losses() populates them too.
         if self.opt.model_mean_type == 'epsilon' or self.opt.flow_matching:
             self.real_x0 = output['target_x0']
@@ -265,8 +269,28 @@ class DDPMTrainer(object):
         loss_logs['loss_model_pred'] = self.loss_model_pred.item()
 
         if self.opt.flow_matching:
-            # Skip vel_loss (zero placeholders); optionally add x0 Huber aux loss.
+            # ------ FM auxiliary losses: Velocity + Acceleration + Huber x0 ------
             if self.opt.add_vel_loss and self.epoch > self.opt.vel_loss_start:
+                vel_weight = getattr(self.opt, 'vel_loss_weight', 100.0)
+                acc_weight = getattr(self.opt, 'acc_loss_weight', 50.0)
+                x0_weight  = getattr(self.opt, 'x0_rec_weight', 100.0)
+
+                # 1) 1st-order velocity loss (motion smoothness)
+                loss_vel_rec = self.mse_criterion(self.fake_vel, self.real_vel).mean(dim=-1)
+                loss_vel_rec = (loss_vel_rec * self.src_mask[:, :-1]).sum() / self.src_mask[:, :-1].sum()
+                self.loss_vel_rec = vel_weight * loss_vel_rec
+                loss_logs['loss_vel_rec'] = self.loss_vel_rec.item()
+                self.final_loss += self.loss_vel_rec
+
+                # 2) 2nd-order acceleration loss (jerk suppression)
+                if acc_weight > 0:
+                    loss_acc_rec = self.mse_criterion(self.fake_acc, self.real_acc).mean(dim=-1)
+                    loss_acc_rec = (loss_acc_rec * self.src_mask[:, :-2]).sum() / self.src_mask[:, :-2].sum()
+                    self.loss_acc_rec = acc_weight * loss_acc_rec
+                    loss_logs['loss_acc_rec'] = self.loss_acc_rec.item()
+                    self.final_loss += self.loss_acc_rec
+
+                # 3) x0 Huber reconstruction loss (smooth action reconstruction)
                 if hasattr(self, 'in_sem') and self.in_sem is not None and \
                         self.opt.sem_rep is not None:
                     loss_x0_rec = self.huber_loss(
@@ -275,9 +299,22 @@ class DDPMTrainer(object):
                     )
                 else:
                     loss_x0_rec = self.huber_loss(self.real_x0, self.fake_x0)
-                self.loss_x0_rec = 100 * loss_x0_rec
+                self.loss_x0_rec = x0_weight * loss_x0_rec
                 loss_logs['loss_x0_rec'] = self.loss_x0_rec.item()
                 self.final_loss += self.loss_x0_rec
+
+            # 4) 6D orthogonalization loss (only for rot_6d + FM)
+            if getattr(self.opt, 'rot_6d', False) and self.opt.ortho_loss_weight > 0:
+                fake_ges_6d = self.fake_x0[..., :self.opt.split_pos]  # [B, T, 282]
+                B_o, T_o, D_o = fake_ges_6d.shape
+                n_joints = D_o // 6
+                pred_6d = fake_ges_6d.reshape(B_o * T_o, n_joints, 6)
+                pred_mat = rot_cvt.rotation_6d_to_matrix(pred_6d)
+                pred_6d_ortho = rot_cvt.matrix_to_rotation_6d(pred_mat)
+                loss_ortho = F.mse_loss(pred_6d, pred_6d_ortho.detach())
+                self.loss_ortho = self.opt.ortho_loss_weight * loss_ortho
+                loss_logs['loss_ortho'] = self.loss_ortho.item()
+                self.final_loss += self.loss_ortho
         else:
             # ------ DDPM auxiliary losses ------
             if self.opt.add_vel_loss and self.epoch > self.opt.vel_loss_start:

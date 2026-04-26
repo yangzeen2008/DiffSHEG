@@ -121,6 +121,11 @@ class BaseOptions():
         self.parser.add_argument('--no_resample', action="store_true", help='Do not use resample during inpainting based sampling')
         self.parser.add_argument('--add_vel_loss', type=bool, default=True, help='Add velocity loss')
         self.parser.add_argument('--vel_loss_start', type=int, default=-1, help='velocity loss and huber loss start epoch')
+        self.parser.add_argument('--vel_loss_weight', type=float, default=100.0, help='Weight for 1st-order velocity loss')
+        self.parser.add_argument('--acc_loss_weight', type=float, default=50.0, help='Weight for 2nd-order acceleration loss (0 to disable)')
+        self.parser.add_argument('--x0_rec_weight', type=float, default=100.0, help='Weight for x0 Huber reconstruction loss')
+        self.parser.add_argument('--rot_6d', action='store_true', help='Use 6D rotation representation (282-dim gesture) instead of axis-angle/euler (141-dim)')
+        self.parser.add_argument('--ortho_loss_weight', type=float, default=0.01, help='Weight for Gram-Schmidt orthogonalization loss (only active with --rot_6d)')
         self.parser.add_argument('--expr_weight', type=int, default=1, help='expression weight')
         
         # inference

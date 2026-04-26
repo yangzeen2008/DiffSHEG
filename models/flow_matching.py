@@ -67,14 +67,26 @@ class FlowMatching:
         #    x_0 ≈ x_t - t * v_pred
         x0_pred = xt - t_expand * model_output
 
+        # 7. Compute 1st-order velocity (finite difference along time axis)
+        #    vel[t] = x0[t+1] - x0[t],  shape: [B, T-1, D]
+        target_vel = x0[:, 1:, :] - x0[:, :-1, :]
+        pred_vel   = x0_pred[:, 1:, :] - x0_pred[:, :-1, :]
+
+        # 8. Compute 2nd-order acceleration (2nd finite difference)
+        #    acc[t] = vel[t+1] - vel[t] = x0[t+2] - 2*x0[t+1] + x0[t],  shape: [B, T-2, D]
+        target_acc = target_vel[:, 1:, :] - target_vel[:, :-1, :]
+        pred_acc   = pred_vel[:, 1:, :] - pred_vel[:, :-1, :]
+
         return {
             "loss": loss,
             "target": target_v,                          # predicted target (vector field)
             "pred": model_output,                        # model prediction  (vector field)
-            # vel fields: zeros as placeholders so trainer code doesn't crash;
-            # the trainer should skip vel_loss in FM mode (see backward_G).
-            "target_vel": torch.zeros_like(target_v),
-            "pred_vel": torch.zeros_like(model_output),
+            # 1st-order velocity (motion smoothness)
+            "target_vel": target_vel,
+            "pred_vel": pred_vel,
+            # 2nd-order acceleration (motion jerk suppression)
+            "target_acc": target_acc,
+            "pred_acc": pred_acc,
             # x0 fields: useful for optional Huber auxiliary loss
             "target_x0": x0,
             "pred_x0": x0_pred,

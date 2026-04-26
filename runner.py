@@ -125,10 +125,12 @@ def main_worker(gpu_id, ngpus_per_node, opt):
         opt.data_root = 'data/BEAT'
         opt.fps = 15
         opt.net_dim_pose = 192 # body: [16, 34, 141], expression: [16, 34, 51], in_audio: [16, 36266]
-        opt.split_pos = 141
         opt.dim_pose = 141
         if opt.remove_hand:
             opt.dim_pose = 33
+        # 6D rotation: 47 joints × 6 = 282 dims for gesture
+        if opt.rot_6d:
+            opt.dim_pose = 282
         opt.expression_dim = 51 
 
         if opt.expression_only or opt.gesCondition_expression_only:
@@ -136,17 +138,24 @@ def main_worker(gpu_id, ngpus_per_node, opt):
             opt.e_path = f'data/BEAT/beat_cache/{opt.beat_cache_name}/weights/face_300.bin'
         elif opt.gesture_only or opt.expCondition_gesture_only != None or \
                 opt.textExpEmoCondition_gesture_only:
-            opt.net_dim_pose = opt.dim_pose # gesture
-            if opt.axis_angle:
+            opt.net_dim_pose = opt.dim_pose # gesture (141 or 282)
+            if opt.rot_6d:
+                opt.e_path = f'data/BEAT/beat_cache/{opt.beat_cache_name}/weights/ae_300.bin'
+            elif opt.axis_angle:
                 opt.e_path = f'data/BEAT/beat_cache/{opt.beat_cache_name}/weights/ges_axis_angle_300.bin'
             else:
                 opt.e_path = f'data/BEAT/beat_cache/{opt.beat_cache_name}/weights/ae_300.bin'
         else:
             opt.net_dim_pose = opt.dim_pose + opt.expression_dim # gesture + expression
-            if opt.axis_angle:
+            if opt.rot_6d:
+                opt.e_path = f'data/BEAT/beat_cache/{opt.beat_cache_name}/weights/ae_300.bin'
+            elif opt.axis_angle:
                 opt.e_path = f'data/BEAT/beat_cache/{opt.beat_cache_name}/weights/GesAxisAngle_Face_300.bin'
             else:
                 raise NotImplementedError
+        
+        # split_pos separates gesture dims from expression dims
+        opt.split_pos = opt.dim_pose
         
         opt.audio_dim = 128
         if opt.use_aud_feat:

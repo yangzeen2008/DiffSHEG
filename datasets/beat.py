@@ -96,14 +96,26 @@ class BeatDataset(Dataset):
                 self.motion_std = self.std_facial 
                 self.motion_mean = self.mean_facial
         elif self.opt.gesture_only or self.opt.expCondition_gesture_only:
-            if self.opt.axis_angle:
+            if getattr(self.opt, 'rot_6d', False):
+                # 6D mode: no normalize (values are in [-1,1] from rotation matrix)
+                # Use identity mean/std so inv_standardize is a no-op
+                n_joints = len(self.mean_pose_axis_angle) // 3
+                self.motion_std = np.ones(n_joints * 6, dtype=np.float32)
+                self.motion_mean = np.zeros(n_joints * 6, dtype=np.float32)
+            elif self.opt.axis_angle:
                 self.motion_std = self.std_pose_axis_angle
                 self.motion_mean = self.mean_pose_axis_angle
             else:
                 self.motion_std = self.std_pose
                 self.motion_mean = self.mean_pose
         else:
-            if self.opt.axis_angle:
+            if getattr(self.opt, 'rot_6d', False):
+                n_joints = len(self.mean_pose_axis_angle) // 3
+                ges_std = np.ones(n_joints * 6, dtype=np.float32)
+                ges_mean = np.zeros(n_joints * 6, dtype=np.float32)
+                self.motion_std = np.concatenate((ges_std, self.std_facial), axis=-1)
+                self.motion_mean = np.concatenate((ges_mean, self.mean_facial), axis=-1)
+            elif self.opt.axis_angle:
                 self.motion_std = np.concatenate((self.std_pose_axis_angle, self.std_facial), axis=-1)
                 self.motion_mean = np.concatenate((self.mean_pose_axis_angle, self.mean_facial), axis=-1)
             else:
@@ -415,7 +427,9 @@ class BeatDataset(Dataset):
 
     @staticmethod
     def normalize_pose(dir_vec, mean_pose, std_pose=None):
-        return (dir_vec - mean_pose) / std_pose 
+        # Clamp near-zero std to avoid exploding values for near-static joints
+        std_safe = np.maximum(std_pose, 1e-5)
+        return (dir_vec - mean_pose) / std_safe 
     
     def __getitem__(self, idx):
         with self.lmdb_env.begin(write=False) as txn:
@@ -440,7 +454,35 @@ class BeatDataset(Dataset):
                 tar_pose_axis_angle = torch.from_numpy(tar_pose_axis_angle.copy()).reshape((tar_pose_axis_angle.shape[0], -1)).float()
                 tar_pose = torch.from_numpy(tar_pose.copy()).reshape((tar_pose.shape[0], -1)).float()
                 in_facial = torch.from_numpy(in_facial.copy()).reshape((in_facial.shape[0], -1)).float()
-        
+
+        # --- 6D rotation on-the-fly conversion ---
+        # Denorm axis_angle, convert to 6D (no normalize needed for 6D).
+        if getattr(self.opt, 'rot_6d', False):
+            # Denormalize axis_angle back to raw values
+            aa_raw = tar_pose_axis_angle * torch.from_numpy(self.std_pose_axis_angle).float() \
+                   + torch.from_numpy(self.mean_pose_axis_angle).float()
+            T = aa_raw.shape[0]
+            n_joints = aa_raw.shape[-1] // 3
+            aa_reshaped = aa_raw.reshape(T, n_joints, 3)
+            pose_6d = rot_cvt.axis_angle_to_rotation_6d(aa_reshaped)  # [T, J, 6]
+            tar_pose_6d = pose_6d.reshape(T, n_joints * 6)            # [T, 282]
+        else:
+            tar_pose_6d = None
+
+        # Build base output dict
+        out = {
+            "pose": tar_pose,
+            "pose_axis_angle": tar_pose_axis_angle,
+            "audio": in_audio,
+            "facial": in_facial,
+            "word": in_word,
+            "id": vid,
+            "emo": emo,
+            "sem": sem,
+        }
+        if tar_pose_6d is not None:
+            out["pose_6d"] = tar_pose_6d
+
         if self.opt.use_aud_feat or self.opt.expAddHubert or self.opt.addHubert:
             npy_path = os.path.join(self.aud_feat_path, f"{idx:05d}.npy")
             aud_feat = np.load(npy_path)
@@ -451,14 +493,14 @@ class BeatDataset(Dataset):
                 aud_feat = F.interpolate(aud_feat.swapaxes(-1,-2).unsqueeze(0), size=tar_pose.shape[0], mode='linear', align_corners=True).swapaxes(-1,-2).squeeze()
             
             if self.opt.use_aud_feat:
-                return {"pose":tar_pose, "pose_axis_angle":tar_pose_axis_angle, "audio":in_audio, \
-                        "aud_feat":aud_feat, "facial":in_facial, "word":in_word, "id":vid, "emo":emo, "sem":sem}
+                out["aud_feat"] = aud_feat
             elif self.opt.expAddHubert or self.opt.addHubert:
-                return {"pose":tar_pose, "pose_axis_angle":tar_pose_axis_angle, "audio":in_audio, \
-                        "aud_feat":in_mel, "pretrain_aud_feat":aud_feat, "facial":in_facial, "word":in_word, "id":vid, "emo":emo, "sem":sem}
+                out["aud_feat"] = in_mel
+                out["pretrain_aud_feat"] = aud_feat
         else:
-            return {"pose":tar_pose, "pose_axis_angle":tar_pose_axis_angle, "audio":in_audio, \
-                    "aud_feat":in_mel, "facial":in_facial, "word":in_word, "id":vid, "emo":emo, "sem":sem}
+            out["aud_feat"] = in_mel
+
+        return out
 
 
 class MotionPreprocessor:

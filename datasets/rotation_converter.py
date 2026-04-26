@@ -379,3 +379,79 @@ def matrix_to_euler_angles(matrix: torch.Tensor, convention: str) -> torch.Tenso
         ),
     )
     return torch.stack(o, -1)
+
+
+# =====================================================================
+# 6D Rotation Representation  (Zhou et al., CVPR 2019)
+# =====================================================================
+
+def matrix_to_rotation_6d(matrix: torch.Tensor) -> torch.Tensor:
+    """
+    Convert rotation matrices to 6D rotation representation.
+
+    Takes the first two columns of the rotation matrix and concatenates them.
+
+    Args:
+        matrix: Rotation matrices as tensor of shape (..., 3, 3).
+
+    Returns:
+        6D rotation representation as tensor of shape (..., 6).
+    """
+    # First two columns: (..., 3) each → concatenate to (..., 6)
+    batch_shape = matrix.shape[:-2]
+    col0 = matrix[..., :, 0]  # (..., 3)
+    col1 = matrix[..., :, 1]  # (..., 3)
+    return torch.cat([col0, col1], dim=-1).reshape(batch_shape + (6,))
+
+
+def rotation_6d_to_matrix(d6: torch.Tensor) -> torch.Tensor:
+    """
+    Convert 6D rotation representation to rotation matrices via
+    Gram-Schmidt orthogonalization.
+
+    Args:
+        d6: 6D rotation representation as tensor of shape (..., 6).
+
+    Returns:
+        Rotation matrices as tensor of shape (..., 3, 3).
+    """
+    a1, a2 = d6[..., :3], d6[..., 3:]
+
+    # Gram-Schmidt: b1 = normalize(a1)
+    b1 = F.normalize(a1, dim=-1)
+
+    # b2 = normalize(a2 - <b1, a2> * b1)
+    dot = (b1 * a2).sum(dim=-1, keepdim=True)
+    b2 = F.normalize(a2 - dot * b1, dim=-1)
+
+    # b3 = b1 × b2
+    b3 = torch.cross(b1, b2, dim=-1)
+
+    return torch.stack((b1, b2, b3), dim=-1)  # (..., 3, 3)
+
+
+def axis_angle_to_rotation_6d(axis_angle: torch.Tensor) -> torch.Tensor:
+    """
+    Convert axis-angle to 6D rotation representation.
+
+    Args:
+        axis_angle: Rotations in axis-angle form, shape (..., 3).
+
+    Returns:
+        6D rotation representation, shape (..., 6).
+    """
+    return matrix_to_rotation_6d(axis_angle_to_matrix(axis_angle))
+
+
+def rotation_6d_to_axis_angle(d6: torch.Tensor) -> torch.Tensor:
+    """
+    Convert 6D rotation representation to axis-angle via
+    Gram-Schmidt orthogonalization.
+
+    Args:
+        d6: 6D rotation representation, shape (..., 6).
+
+    Returns:
+        Rotations in axis-angle form, shape (..., 3).
+    """
+    return matrix_to_axis_angle(rotation_6d_to_matrix(d6))

@@ -186,6 +186,10 @@ class DDPMTrainer_beat(object):
 
         self.real_vel = output['target_vel']
         self.fake_vel = output['pred_vel']
+        # FM provides acceleration fields; DDPM does not.
+        if self.opt.flow_matching:
+            self.real_acc = output['target_acc']
+            self.fake_acc = output['pred_acc']
         # Always store x0 fields; FM's training_losses() populates them too.
         if self.opt.model_mean_type == 'epsilon' or self.opt.flow_matching:
             self.real_x0 = output['target_x0']
@@ -285,10 +289,28 @@ class DDPMTrainer_beat(object):
         loss_logs['loss_model_pred'] = self.loss_model_pred.item()
 
         if self.opt.flow_matching:
-            # ------ FM auxiliary loss: x0 reconstruction via Huber ------
-            # target_vel / pred_vel are zero placeholders in FM — skip them.
-            # Instead, add an optional x0 Huber loss once warmup is done.
+            # ------ FM auxiliary losses: Velocity + Acceleration + Huber x0 ------
             if self.opt.add_vel_loss and self.epoch > self.opt.vel_loss_start:
+                vel_weight = getattr(self.opt, 'vel_loss_weight', 100.0)
+                acc_weight = getattr(self.opt, 'acc_loss_weight', 50.0)
+                x0_weight  = getattr(self.opt, 'x0_rec_weight', 100.0)
+
+                # 1) 1st-order velocity loss (motion smoothness)
+                loss_vel_rec = self.mse_criterion(self.fake_vel, self.real_vel).mean(dim=-1)
+                loss_vel_rec = (loss_vel_rec * self.src_mask[:, :-1]).sum() / self.src_mask[:, :-1].sum()
+                self.loss_vel_rec = vel_weight * loss_vel_rec
+                loss_logs['loss_vel_rec'] = self.loss_vel_rec.item()
+                self.final_loss += self.loss_vel_rec
+
+                # 2) 2nd-order acceleration loss (jerk suppression)
+                if acc_weight > 0:
+                    loss_acc_rec = self.mse_criterion(self.fake_acc, self.real_acc).mean(dim=-1)
+                    loss_acc_rec = (loss_acc_rec * self.src_mask[:, :-2]).sum() / self.src_mask[:, :-2].sum()
+                    self.loss_acc_rec = acc_weight * loss_acc_rec
+                    loss_logs['loss_acc_rec'] = self.loss_acc_rec.item()
+                    self.final_loss += self.loss_acc_rec
+
+                # 3) x0 Huber reconstruction loss (smooth action reconstruction)
                 if self.opt.dataset_name == 'beat' and self.opt.sem_rep is not None:
                     loss_x0_rec = self.huber_loss(
                         self.real_x0 * (self.in_sem.unsqueeze(2) + 1),
@@ -296,9 +318,24 @@ class DDPMTrainer_beat(object):
                     )
                 else:
                     loss_x0_rec = self.huber_loss(self.real_x0, self.fake_x0)
-                self.loss_x0_rec = 100 * loss_x0_rec
+                self.loss_x0_rec = x0_weight * loss_x0_rec
                 loss_logs['loss_x0_rec'] = self.loss_x0_rec.item()
                 self.final_loss += self.loss_x0_rec
+
+            # 4) 6D orthogonalization loss (only for rot_6d + FM)
+            if getattr(self.opt, 'rot_6d', False) and self.opt.ortho_loss_weight > 0:
+                # Extract gesture-only 6D dims (skip expression if concatenated)
+                fake_ges_6d = self.fake_x0[..., :self.opt.split_pos]  # [B, T, 282]
+                B_o, T_o, D_o = fake_ges_6d.shape
+                n_joints = D_o // 6
+                pred_6d = fake_ges_6d.reshape(B_o * T_o, n_joints, 6)
+                # Gram-Schmidt → back to 6D (the "correct" 6D)
+                pred_mat = rot_cvt.rotation_6d_to_matrix(pred_6d)          # [B*T, J, 3, 3]
+                pred_6d_ortho = rot_cvt.matrix_to_rotation_6d(pred_mat)    # [B*T, J, 6]
+                loss_ortho = F.mse_loss(pred_6d, pred_6d_ortho.detach())
+                self.loss_ortho = self.opt.ortho_loss_weight * loss_ortho
+                loss_logs['loss_ortho'] = self.loss_ortho.item()
+                self.final_loss += self.loss_ortho
         else:
             # ------ DDPM auxiliary losses ------
             if self.opt.add_vel_loss and self.epoch > self.opt.vel_loss_start:
@@ -447,11 +484,13 @@ class DDPMTrainer_beat(object):
             for i, batch_data in enumerate(train_loader):
                 # tt1 = time.time()
                 if not self.opt.expression_only:
-                    if self.opt.axis_angle:
+                    if getattr(self.opt, 'rot_6d', False):
+                        tar_pose = batch_data["pose_6d"]  # [B, T, 282]
+                    elif self.opt.axis_angle:
                         tar_pose = batch_data["pose_axis_angle"]
                     else:
                         tar_pose = batch_data["pose"] # torch.Size([B, 34, 141])
-                    if self.opt.remove_hand:
+                    if self.opt.remove_hand and not getattr(self.opt, 'rot_6d', False):
                         tar_pose = tar_pose[..., [pp for pp in range(0,21)] + [pp for pp in range(75,87)]]
                     tar_pose = tar_pose.to(self.device)
                 if not self.opt.gesture_only:
@@ -561,12 +600,14 @@ class DDPMTrainer_beat(object):
                 with torch.no_grad():
                     for i, batch_data in tqdm(enumerate(val_loader)):
                         if not self.opt.expression_only:
-                            if self.opt.axis_angle:
+                            if getattr(self.opt, 'rot_6d', False):
+                                tar_pose = batch_data["pose_6d"]  # [B, T, 282]
+                            elif self.opt.axis_angle:
                                 tar_pose = batch_data["pose_axis_angle"]
                                 tar_pose_euler = batch_data["pose"].to(self.device)
                             else:
                                 tar_pose = batch_data["pose"] # torch.Size([256, 34, 141])
-                            if self.opt.remove_hand:
+                            if self.opt.remove_hand and not getattr(self.opt, 'rot_6d', False):
                                 tar_pose = tar_pose[..., [pp for pp in range(0,21)] + [pp for pp in range(75,87)]]
                             tar_pose = tar_pose.to(self.device)
                         if not self.opt.gesture_only:
@@ -632,9 +673,29 @@ class DDPMTrainer_beat(object):
                         outputs = self.generate_batch(audio_emb, p_id, self.opt.net_dim_pose, add_cond, inpaint_dict)
                         B, seq, C = outputs.shape
 
+                        # 6D → convert to euler for FGD eval (eval_model expects 141-dim euler)
+                        if getattr(self.opt, 'rot_6d', False) and not self.opt.no_fgd:
+                            n_j = self.opt.split_pos // 6  # 47 joints
+                            out_ges_6d = outputs[..., :self.opt.split_pos]
+                            mat = rot_cvt.rotation_6d_to_matrix(out_ges_6d.reshape(B*seq, n_j, 6))
+                            aa = rot_cvt.matrix_to_axis_angle(mat).reshape(B, seq, n_j*3)
+                            euler = rot_cvt.axis_angle_to_euler_angles(aa.reshape(B, seq, n_j, 3)).reshape(B, seq, n_j*3)
+                            euler_deg = euler * (180 / np.pi)
+                            outputs_for_eval = euler_deg.float()
+                            # Also convert GT motions for eval
+                            gt_ges_6d = motions[..., :self.opt.split_pos]
+                            mat_gt = rot_cvt.rotation_6d_to_matrix(gt_ges_6d.reshape(B*seq, n_j, 6))
+                            aa_gt = rot_cvt.matrix_to_axis_angle(mat_gt).reshape(B, seq, n_j*3)
+                            euler_gt = rot_cvt.axis_angle_to_euler_angles(aa_gt.reshape(B, seq, n_j, 3)).reshape(B, seq, n_j*3)
+                            euler_deg_gt = euler_gt * (180 / np.pi)
+                            motions_for_eval = euler_deg_gt.float()
+                        else:
+                            outputs_for_eval = outputs
+                            motions_for_eval = motions
+
                         if not self.opt.no_fgd:
-                            latent_out = self.eval_model(outputs[:, :34, :].float())
-                            latent_ori = self.eval_model(motions[:, :34, :].float())
+                            latent_out = self.eval_model(outputs_for_eval[:, :34, :].float())
+                            latent_ori = self.eval_model(motions_for_eval[:, :34, :].float())
                             #print(latent_out,latent_ori)
                             if i == 0:
                                 latent_out_all = latent_out.cpu().numpy()
@@ -648,13 +709,25 @@ class DDPMTrainer_beat(object):
                         ## to cpu
                         outputs, motions = outputs.cpu(), motions.cpu()
                         
-                        motions = motions.reshape(B, seq, C//3, 3).numpy()
-                        outputs = outputs.reshape(B, seq, C//3, 3).numpy()
+                        if getattr(self.opt, 'rot_6d', False):
+                            # For MSE/PCK: convert to euler space for fair comparison
+                            n_j = self.opt.split_pos // 6
+                            out_ges = outputs[..., :self.opt.split_pos]
+                            mat_o = rot_cvt.rotation_6d_to_matrix(out_ges.reshape(B*seq, n_j, 6))
+                            aa_o = rot_cvt.matrix_to_axis_angle(mat_o).reshape(B, seq, n_j, 3)
+                            outputs_np = aa_o.numpy()
+                            gt_ges = motions[..., :self.opt.split_pos]
+                            mat_g = rot_cvt.rotation_6d_to_matrix(gt_ges.reshape(B*seq, n_j, 6))
+                            aa_g = rot_cvt.matrix_to_axis_angle(mat_g).reshape(B, seq, n_j, 3)
+                            motions_np = aa_g.numpy()
+                        else:
+                            motions_np = motions.reshape(B, seq, C//3, 3).numpy()
+                            outputs_np = outputs.reshape(B, seq, C//3, 3).numpy()
 
 
                         ### MSE & PCK
                         
-                        diff = outputs - motions
+                        diff = outputs_np - motions_np
                         diff_square = diff ** 2
                         correct = np.sum(diff_square, axis=3)
                         correct = np.sqrt(correct) < 0.5
@@ -666,7 +739,7 @@ class DDPMTrainer_beat(object):
                         if B < B_div:
                             B_div = B
                         # out_split = outputs.split(B_div, dim=0)
-                        out_split = np.split(outputs, np.arange(B_div, B, B_div), axis=0)
+                        out_split = np.split(outputs_np, np.arange(B_div, B, B_div), axis=0)
                         for idx in range(B // B_div):
                             div_val = 0.0
                             for ii in range(0, B_div):
@@ -803,11 +876,13 @@ class DDPMTrainer_beat(object):
         count = 0
         for i, batch_data in enumerate(test_loader):
             if not self.opt.expression_only:
-                if self.opt.axis_angle:
+                if getattr(self.opt, 'rot_6d', False):
+                    tar_pose = batch_data["pose_6d"]  # [B, T, 282]
+                elif self.opt.axis_angle:
                     tar_pose = batch_data["pose_axis_angle"]
                 else:
                     tar_pose = batch_data["pose"] # torch.Size([256, 34, 141])
-                if self.opt.remove_hand:
+                if self.opt.remove_hand and not getattr(self.opt, 'rot_6d', False):
                     tar_pose = tar_pose[..., [pp for pp in range(0,21)] + [pp for pp in range(75,87)]]
                 tar_pose = tar_pose.to(self.device)
             if not self.opt.gesture_only:
@@ -872,7 +947,24 @@ class DDPMTrainer_beat(object):
             else:
                 outputs = motions.cpu().numpy()
             
-            if self.opt.axis_angle:
+            if getattr(self.opt, 'rot_6d', False):
+                # 6D outputs → Gram-Schmidt → axis_angle → euler degrees → normalize with euler stats
+                outputs = torch.from_numpy(outputs)
+                B, T, D = outputs.shape
+                n_j = self.opt.split_pos // 6  # 47 joints
+                ges_6d = outputs[..., :self.opt.split_pos]  # [B, T, 282]
+                mat = rot_cvt.rotation_6d_to_matrix(ges_6d.reshape(B * T, n_j, 6))  # [B*T, J, 3, 3]
+                aa = rot_cvt.matrix_to_axis_angle(mat).reshape(B, T, n_j * 3)       # [B, T, 141]
+                euler_out = rot_cvt.axis_angle_to_euler_angles(aa.reshape(B, T, n_j, 3)).reshape(B, T, n_j * 3)
+                euler_deg = euler_out * (180 / np.pi)
+                outputs_euler = (euler_deg - test_dataset.mean_pose) / test_dataset.std_pose
+                # If expression dims exist, keep them as-is (already in correct space)
+                if D > self.opt.split_pos:
+                    expr_part = outputs[..., self.opt.split_pos:]
+                    outputs = torch.cat([outputs_euler, expr_part], dim=-1).numpy()
+                else:
+                    outputs = outputs_euler.numpy()
+            elif self.opt.axis_angle:
                 outputs = torch.from_numpy(outputs)
                 denorm_out = outputs * test_dataset.motion_std + test_dataset.motion_mean
                 B, T, C = denorm_out.shape
