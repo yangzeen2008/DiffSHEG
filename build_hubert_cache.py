@@ -22,7 +22,7 @@ from tqdm import tqdm
 sys.path.insert(0, str(Path(__file__).parent))
 
 # ===== 配置（必须与训练参数完全一致）=====
-CACHE_ROOT    = r"f:\study\DiffSHEG\data\BEAT\beat_cache\beat_4english_15_141"
+CACHE_ROOT    = "./data/BEAT/beat_cache/beat_4english_15_141"
 POSE_LEN      = 34        # --n_poses
 STRIDE        = 10        # BEAT 数据集 stride（runner.py line 168）
 POSE_FPS      = 15        # 姿态帧率

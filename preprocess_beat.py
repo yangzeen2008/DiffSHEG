@@ -27,8 +27,8 @@ from tqdm import tqdm
 sys.path.insert(0, str(Path(__file__).parent))
 
 # ===== 配置 =====
-RAW_DIR   = r"f:\study\DiffSHEG\data\BEAT\raw\beat_english_v0.2.1\beat_english_v0.2.1"
-OUT_ROOT  = r"f:\study\DiffSHEG\data\BEAT\beat_cache\beat_4english_15_141"
+RAW_DIR   = "./data/BEAT/raw/beat_english_v0.2.1/beat_english_v0.2.1"
+OUT_ROOT  = "./data/BEAT/beat_cache/beat_4english_15_141"
 
 # 4 位英文说话人的文件夹 ID（对应 BEAT 数据集中的编号）
 SPEAKER_IDS = ["1", "2", "3", "4"]
