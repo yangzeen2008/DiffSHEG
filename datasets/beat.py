@@ -427,8 +427,10 @@ class BeatDataset(Dataset):
 
     @staticmethod
     def normalize_pose(dir_vec, mean_pose, std_pose=None):
-        # Clamp near-zero std to avoid exploding values for near-static joints
-        std_safe = np.maximum(std_pose, 1e-5)
+        # Clamp near-zero std to avoid exploding values for near-static joints.
+        # 20 axis-angle dims have std ~1e-8 (static joints); 1e-2 is safely
+        # below the 21st-smallest std (0.0088) so only truly static dims are affected.
+        std_safe = np.maximum(std_pose, 1e-2)
         return (dir_vec - mean_pose) / std_safe 
     
     def __getitem__(self, idx):

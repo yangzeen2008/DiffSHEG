@@ -51,7 +51,7 @@ class SimpleMotionDataset(Dataset):
         return self.n_samples
 
     def __getitem__(self, idx):
-        key = "{:010}".format(idx).encode("ascii")
+        key = "{:005}".format(idx).encode("ascii")
         with self.lmdb_env.begin(write=False) as txn:
             sample = txn.get(key)
             if sample is None:

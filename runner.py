@@ -140,7 +140,8 @@ def main_worker(gpu_id, ngpus_per_node, opt):
                 opt.textExpEmoCondition_gesture_only:
             opt.net_dim_pose = opt.dim_pose # gesture (141 or 282)
             if opt.rot_6d:
-                opt.e_path = f'data/BEAT/beat_cache/{opt.beat_cache_name}/weights/ae_300.bin'
+                # 6D eval converts to euler before FGD, so use gesture-only axis-angle weights
+                opt.e_path = f'data/BEAT/beat_cache/{opt.beat_cache_name}/weights/ges_axis_angle_300.bin'
             elif opt.axis_angle:
                 opt.e_path = f'data/BEAT/beat_cache/{opt.beat_cache_name}/weights/ges_axis_angle_300.bin'
             else:
@@ -148,9 +149,11 @@ def main_worker(gpu_id, ngpus_per_node, opt):
         else:
             opt.net_dim_pose = opt.dim_pose + opt.expression_dim # gesture + expression
             if opt.rot_6d:
-                opt.e_path = f'data/BEAT/beat_cache/{opt.beat_cache_name}/weights/ae_300.bin'
+                # 6D eval converts to euler before FGD, so use gesture-only axis-angle weights
+                opt.e_path = f'data/BEAT/beat_cache/{opt.beat_cache_name}/weights/ges_axis_angle_300.bin'
             elif opt.axis_angle:
-                opt.e_path = f'data/BEAT/beat_cache/{opt.beat_cache_name}/weights/GesAxisAngle_Face_300.bin'
+                # Use gesture-only FGD weights; eval code slices to split_pos before feeding
+                opt.e_path = f'data/BEAT/beat_cache/{opt.beat_cache_name}/weights/ges_axis_angle_300.bin'
             else:
                 raise NotImplementedError
         
@@ -170,6 +173,11 @@ def main_worker(gpu_id, ngpus_per_node, opt):
         opt.freeze_wordembed = False
         opt.hidden_size = 256
         opt.n_layer = 4
+        # Allow CLI override for model capacity experiments
+        if getattr(opt, 'hidden_size_override', 0) > 0:
+            opt.hidden_size = opt.hidden_size_override
+        if getattr(opt, 'n_layer_override', 0) > 0:
+            opt.n_layer = opt.n_layer_override
 
         if opt.n_poses == 150:
             opt.stride = 50
@@ -239,7 +247,12 @@ def main_worker(gpu_id, ngpus_per_node, opt):
     model = build_models(opt, opt.net_dim_pose, opt.audio_dim, opt.audio_latent_dim, opt.style_dim)
 
     if opt.no_fgd == False:
+        # FGD eval model uses gesture-only euler dims (141), not full net_dim_pose
+        # For 6D mode, eval code converts 6D→euler before feeding FGD, so still 141
+        orig_net_dim = opt.net_dim_pose
+        opt.net_dim_pose = 141  # always 141 for gesture-only FGD autoencoder
         eval_model = build_fgd_val_model(opt)
+        opt.net_dim_pose = orig_net_dim  # restore for main model
     else:
         eval_model = None
 
@@ -315,10 +328,37 @@ def main_worker(gpu_id, ngpus_per_node, opt):
 
 
         runner.train(train_dataset, val_dataset)
+    elif opt.mode == "eval":
+        # Standalone evaluation: loads val set, runs one validation epoch, prints MSE/PCK/Diversity
+        if opt.dataset_name.lower() == 'beat':
+            val_dataset = __import__(f"datasets.{opt.dataset_name}", fromlist=["something"]).BeatDataset(opt, "val")
+        elif opt.dataset_name.lower() == 'talkshow':
+            val_dataset = ShowDataset(opt, 'data/SHOW/cached_data/talkshow_val_cache')
+        
+        # Copy specified ckpt to latest.tar so resume loads it
+        import shutil
+        src = pjoin(opt.model_dir, opt.ckpt)
+        dst = pjoin(opt.model_dir, 'latest.tar')
+        if opt.ckpt != 'latest.tar':
+            shutil.copy2(src, dst)
+            print(f"Copied {opt.ckpt} -> latest.tar for eval")
+        
+        # Use the trainer's built-in load mechanism
+        opt.resume = True
+        opt.eval_every_e = 1
+        opt.num_epochs = 99999
+        opt.save_every_e = 9999
+        opt.debug = True  # 1 train batch + 1 eval batch per epoch, then break
+        
+        train_dataset = val_dataset
+        
+        print(f"Running eval with fm_sample_steps={getattr(opt, 'fm_sample_steps', 'N/A')}")
+        runner.train(train_dataset, val_dataset)
 
     elif "test" in opt.mode:
         if opt.dataset_name.lower() == 'beat':
-            test_dataset = __import__(f"datasets.{opt.dataset_name}", fromlist=["something"]).BeatDataset(opt, "test")
+            split = "val" if opt.test_on_val else "test"
+            test_dataset = __import__(f"datasets.{opt.dataset_name}", fromlist=["something"]).BeatDataset(opt, split)
 
         elif opt.dataset_name.lower() == 'talkshow':
             test_dataset = ShowDataset(opt, 'data/SHOW/cached_data/talkshow_test_cache')

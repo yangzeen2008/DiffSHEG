@@ -31,7 +31,7 @@ class BaseOptions():
         self.parser.add_argument("--rename", default=None, help='rename the experiment name during test')
 
         self.parser.add_argument("--debug", action="store_true", help='debug mode, only run one iteration')
-        self.parser.add_argument('--mode', type=str, default='train', choices=["train", "val", "test", "test_arbitrary_len", "test_custom_audio"], help='train, val or test')
+        self.parser.add_argument('--mode', type=str, default='train', choices=["train", "val", "test", "test_arbitrary_len", "test_custom_audio", "eval"], help='train, val, test or eval')
 
         self.parser.add_argument('--dataset_name', type=str, default='t2m', help='Dataset Name')
         self.parser.add_argument('--data_mode', type=str, default='original', choices=['original', 'add_init_state'], help='Data modes')
@@ -126,6 +126,9 @@ class BaseOptions():
         self.parser.add_argument('--x0_rec_weight', type=float, default=100.0, help='Weight for x0 Huber reconstruction loss')
         self.parser.add_argument('--rot_6d', action='store_true', help='Use 6D rotation representation (282-dim gesture) instead of axis-angle/euler (141-dim)')
         self.parser.add_argument('--ortho_loss_weight', type=float, default=0.01, help='Weight for Gram-Schmidt orthogonalization loss (only active with --rot_6d)')
+        self.parser.add_argument('--diversity_loss_weight', type=float, default=0.0, help='Weight for diversity loss (batch pairwise distance, prevents mode collapse)')
+        self.parser.add_argument('--hidden_size_override', type=int, default=0, help='Override hidden_size (0=use default 256)')
+        self.parser.add_argument('--n_layer_override', type=int, default=0, help='Override n_layer (0=use default 4)')
         self.parser.add_argument('--expr_weight', type=int, default=1, help='expression weight')
         
         # inference

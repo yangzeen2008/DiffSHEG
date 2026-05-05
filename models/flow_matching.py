@@ -20,6 +20,8 @@ class FlowMatching:
         self.sigma_min = 1e-4
         # Sampling steps configurable via opt (default 50)
         self.sample_steps = getattr(opt, 'fm_sample_steps', 50)
+        # Use RK4 instead of Euler for smoother ODE integration
+        self.use_rk4 = getattr(opt, 'fm_use_rk4', True)
 
     # ------------------------------------------------------------------
     # Training
@@ -121,18 +123,26 @@ class FlowMatching:
         if progress:
             iterator = tqdm(iterator, desc='FM sampling', total=steps)
 
+        def _velocity(x, t_val):
+            t_b = torch.full((b,), t_val, device=device)
+            return model(x, timesteps=t_b * 1000.0, **model_kwargs)
+
         for i in iterator:
-            t_curr = times[i]
-            t_next = times[i + 1]
-
-            t_batch = torch.full((b,), t_curr.item(), device=device)
-            t_batch_scaled = t_batch * 1000.0
-
-            v_pred = model(img, timesteps=t_batch_scaled, **model_kwargs)
-
-            # Euler update: dt is negative (moving from noise → data)
+            t_curr = times[i].item()
+            t_next = times[i + 1].item()
             d_t = t_next - t_curr
-            img = img + v_pred * d_t
+
+            if self.use_rk4:
+                # 4th-order Runge-Kutta
+                k1 = _velocity(img, t_curr)
+                k2 = _velocity(img + 0.5 * d_t * k1, t_curr + 0.5 * d_t)
+                k3 = _velocity(img + 0.5 * d_t * k2, t_curr + 0.5 * d_t)
+                k4 = _velocity(img + d_t * k3, t_next)
+                img = img + (d_t / 6.0) * (k1 + 2*k2 + 2*k3 + k4)
+            else:
+                # Euler (original)
+                v_pred = _velocity(img, t_curr)
+                img = img + v_pred * d_t
 
         return img  # [B, T, D]
 
@@ -177,25 +187,34 @@ class FlowMatching:
         if progress:
             iterator = tqdm(iterator, desc='FM inpaint sampling', total=steps)
 
-        for i in iterator:
-            t_curr = times[i]
-            t_next = times[i + 1]
-            t_val  = t_curr.item()
+        def _velocity_inpaint(x, t_val):
+            t_b = torch.full((b,), t_val, device=device)
+            return model(x, timesteps=t_b * 1000.0, **model_kwargs)
 
-            # --- Inpaint: force known region onto the FM trajectory ---
+        def _apply_inpaint(x, t_val):
             if gt is not None and mask is not None:
                 gt_noisy = (1.0 - t_val) * gt + t_val * noise_for_gt
-                img = torch.where(mask, gt_noisy, img)
+                return torch.where(mask, gt_noisy, x)
+            return x
 
-            t_batch = torch.full((b,), t_val, device=device)
-            t_batch_scaled = t_batch * 1000.0
-
-            v_pred = model(img, timesteps=t_batch_scaled, **model_kwargs)
-
+        for i in iterator:
+            t_curr = times[i].item()
+            t_next = times[i + 1].item()
             d_t = t_next - t_curr
-            img = img + v_pred * d_t
 
-        # Final hard-replace: ensure generated output matches GT in known region
+            img = _apply_inpaint(img, t_curr)
+
+            if self.use_rk4:
+                k1 = _velocity_inpaint(img, t_curr)
+                k2 = _velocity_inpaint(_apply_inpaint(img + 0.5*d_t*k1, t_curr + 0.5*d_t), t_curr + 0.5*d_t)
+                k3 = _velocity_inpaint(_apply_inpaint(img + 0.5*d_t*k2, t_curr + 0.5*d_t), t_curr + 0.5*d_t)
+                k4 = _velocity_inpaint(_apply_inpaint(img + d_t*k3, t_next), t_next)
+                img = img + (d_t / 6.0) * (k1 + 2*k2 + 2*k3 + k4)
+            else:
+                v_pred = _velocity_inpaint(img, t_curr)
+                img = img + v_pred * d_t
+
+        # Final hard-replace
         if gt is not None and mask is not None:
             img = torch.where(mask, gt, img)
 

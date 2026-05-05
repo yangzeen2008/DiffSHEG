@@ -336,6 +336,17 @@ class DDPMTrainer_beat(object):
                 self.loss_ortho = self.opt.ortho_loss_weight * loss_ortho
                 loss_logs['loss_ortho'] = self.loss_ortho.item()
                 self.final_loss += self.loss_ortho
+
+            # 5) Diversity loss (prevents mode collapse)
+            div_weight = getattr(self.opt, 'diversity_loss_weight', 0.0)
+            if div_weight > 0 and self.fake_x0.shape[0] > 1:
+                # Encourage pairwise distance between samples in the batch
+                B_d = self.fake_x0.shape[0]
+                flat = self.fake_x0.reshape(B_d, -1)  # [B, T*D]
+                # Negative mean pairwise distance → minimize = maximize diversity
+                self.loss_diversity = -div_weight * torch.pdist(flat).mean()
+                loss_logs['loss_div'] = self.loss_diversity.item()
+                self.final_loss += self.loss_diversity
         else:
             # ------ DDPM auxiliary losses ------
             if self.opt.add_vel_loss and self.epoch > self.opt.vel_loss_start:
@@ -591,11 +602,12 @@ class DDPMTrainer_beat(object):
                 count = 0.0
                 diversity = AverageMeter('diversity')
                 pck = AverageMeter('pck')
+                srgr = AverageMeter('srgr')
                 mse = AverageMeter('mse')
                 fgd = AverageMeter('fgd')
                 progress = ProgressMeter(
                     len(val_loader) + (self.opt.distributed and (len(val_loader.sampler) * self.opt.world_size < len(val_loader.dataset))),
-                    [diversity, pck, mse],
+                    [diversity, pck, srgr, mse],
                     prefix='Test: ')
                 with torch.no_grad():
                     for i, batch_data in tqdm(enumerate(val_loader)):
@@ -651,6 +663,9 @@ class DDPMTrainer_beat(object):
                         if self.opt.remove_style:
                             p_id = torch.zeros_like(p_id).to(p_id.device)
 
+                        # Save sem for SRGR before batch_data is overwritten
+                        in_sem = batch_data["sem"]  # [B, T]
+
                         batch_data = [audio_emb, motions, p_id]
 
                         if self.opt.use_single_style:
@@ -694,8 +709,10 @@ class DDPMTrainer_beat(object):
                             motions_for_eval = motions
 
                         if not self.opt.no_fgd:
-                            latent_out = self.eval_model(outputs_for_eval[:, :34, :].float())
-                            latent_ori = self.eval_model(motions_for_eval[:, :34, :].float())
+                            # Slice to gesture dims only (split_pos=141) for FGD eval
+                            sp = getattr(self.opt, 'split_pos', outputs_for_eval.shape[-1])
+                            latent_out = self.eval_model(outputs_for_eval[:, :34, :sp].float())
+                            latent_ori = self.eval_model(motions_for_eval[:, :34, :sp].float())
                             #print(latent_out,latent_ori)
                             if i == 0:
                                 latent_out_all = latent_out.cpu().numpy()
@@ -725,14 +742,26 @@ class DDPMTrainer_beat(object):
                             outputs_np = outputs.reshape(B, seq, C//3, 3).numpy()
 
 
-                        ### MSE & PCK
+                        ### MSE & PCK & SRGR
                         
                         diff = outputs_np - motions_np
                         diff_square = diff ** 2
-                        correct = np.sum(diff_square, axis=3)
-                        correct = np.sqrt(correct) < 0.5
+                        correct = np.sum(diff_square, axis=3)  # [B, T, J]
+                        correct = np.sqrt(correct) < 0.5       # bool [B, T, J]
                         pck_val = np.mean(correct)
                         mse_val = np.mean(diff_square)
+                        
+                        # SRGR: semantic-weighted PCK (BEAT paper, Liu et al. 2022)
+                        # sem: [B, T] with values 0-1 (0.1=beat gesture, 0.2-1.0=semantic)
+                        in_sem_np = in_sem.numpy()  # [B, T]
+                        # Mean PCK per frame (average over joints): [B, T]
+                        pck_per_frame = np.mean(correct, axis=2)  # [B, T]
+                        # SRGR = weighted average: sum(sem * pck_per_frame) / sum(sem)
+                        sem_sum = np.sum(in_sem_np)
+                        if sem_sum > 0:
+                            srgr_val = np.sum(in_sem_np * pck_per_frame) / sem_sum
+                        else:
+                            srgr_val = pck_val  # fallback to PCK if no sem data
                         
                         ### diversity
                         B_div = 50 ## In Ye et al. (ECCV'22), Batch size is 50 when evaluating diversity
@@ -754,6 +783,7 @@ class DDPMTrainer_beat(object):
                         # update in averagemeter
                         mse.update(mse_val, B)
                         pck.update(pck_val, B)
+                        srgr.update(srgr_val, B)
 
                         if self.opt.debug or (self.opt.max_eval_samples != -1 and pck.count >= self.opt.max_eval_samples):
                             break
@@ -762,11 +792,12 @@ class DDPMTrainer_beat(object):
                     diversity.all_reduce()
                     mse.all_reduce()
                     pck.all_reduce()
+                    srgr.all_reduce()
                 
                 if rank == 0:
                     if not self.opt.debug:
-                        wandb.log({"MSE": mse.avg, "PCK": pck.avg, "Diversity": diversity.avg}, step = epoch)
-                    print(f"[Validation]: Epoch: {epoch}, MSE: {mse.avg}, PCK: {pck.avg}, Diversity: {diversity.avg}")
+                        wandb.log({"MSE": mse.avg, "PCK": pck.avg, "SRGR": srgr.avg, "Diversity": diversity.avg}, step = epoch)
+                    print(f"[Validation]: Epoch: {epoch}, MSE: {mse.avg}, PCK: {pck.avg}, SRGR: {srgr.avg}, Diversity: {diversity.avg}")
                 
                 if not self.opt.no_fgd:
                     fgd_val = data_tools.FIDCalculator.frechet_distance(latent_out_all, latent_ori_all)
@@ -968,10 +999,15 @@ class DDPMTrainer_beat(object):
                 outputs = torch.from_numpy(outputs)
                 denorm_out = outputs * test_dataset.motion_std + test_dataset.motion_mean
                 B, T, C = denorm_out.shape
-                euler_out = rot_cvt.axis_angle_to_euler_angles(denorm_out.reshape(B, T, C//3, 3)).reshape(B,T,C)
+                euler_out = rot_cvt.axis_angle_to_euler_angles(denorm_out[..., :self.opt.split_pos].reshape(B, T, self.opt.split_pos//3, 3)).reshape(B,T,self.opt.split_pos)
                 euler_out = euler_out * (180 / np.pi)
-                outputs = (euler_out - test_dataset.mean_pose) / test_dataset.std_pose
-                outputs = outputs.numpy()
+                euler_norm = (euler_out - test_dataset.mean_pose) / test_dataset.std_pose
+                # If expression dims exist, keep them
+                if C > self.opt.split_pos:
+                    expr_part = denorm_out[..., self.opt.split_pos:]
+                    outputs = torch.cat([euler_norm, expr_part], dim=-1).numpy()
+                else:
+                    outputs = euler_norm.numpy()
 
             if self.opt.unidiffuser or self.opt.net_dim_pose == 192:
                 outputs, out_expression = np.split(outputs, [self.opt.split_pos], axis=-1)
