@@ -1,6 +1,6 @@
 # DiffSHEG 项目进展
 
-> 更新时间: 2026-05-05 17:52
+> 更新时间: 2026-06-20 16:30
 
 ---
 
@@ -20,14 +20,16 @@
 
 ## 🚀 当前状态
 
-**beat_FM_v6 训练完成 ✅** — 后处理自适应平滑已就绪
+**500 Epochs 统一消融与表示对比实验及 1-Step 推理极限对比全部完成 ✅**
 
 ```
-最终模型: beat_FM_v6 (Epoch 999, PCK=23.52%)
-后处理:   自适应 Gaussian 滤波 (spine=1.2, arm=1.5, hand=1.5)
-输出:     bvh_output/FM_v6_adaptive.bvh
-对比视频: bvh_output/comparison_side_by_side_audio.mp4
+最终模型: beat_FM_aa_velAcc (Ours, PCK=23.05%, MSE=1.0134, Div=0.5205)
+本地推理: 修复了 CPU 运行 Bug，支持本地无显卡 CPU 运行推理评估 (eval_metrics.py)
+模型下载: 成功从 SeetaCloud 同步 5 组最新模型 checkpoints 到本地 (pck_best.tar, mse_best.tar)
+1步对比: 完成 4 组 FM 消融模型在 1-Step 推理下的极限测试，并渲染生成并排视频 step1_comparison.mp4 (含配音)
+学术图表: 新增并重新生成 Figure 5 (主对比)、Figure 6 (物理消融)、Figure 7 (旋转表示) 及 Figure 8 (全指标综合图)
 ```
+
 
 ### 训练配置 (FM_v6)
 
@@ -126,6 +128,11 @@ ssh.close()
 | FM_v4 | FM 50 Euler | 834×3 | 100/0 | ❌ 错误 | ⏹️ 中止 | |
 | **FM_v5** | **FM 50 Euler** | **834×3** | **100/0** | **✅ 修复** | **✅ 完成** | **幅度恢复，抖动大** |
 | **FM_v6** | **FM 50 RK4** | **500×5** | **500/200** | **✅ 修复** | **✅ 完成** | **PCK=23.52%, +后处理平滑** |
+| **DDPM_v2** | **DDIM 25** | **256** | **—** | **✅ 修复** | **✅ 完成** | **PCK=20.56%, MSE=1.181, SRGR=20.27%, Div=0.649** |
+| **FM_aa_base** | **FM 50 RK4** | **512** | **0/0/0** | **✅ 修复** | **✅ 完成** | **PCK=23.01%, MSE=1.0169, SRGR=22.76%, Div=0.5240** |
+| **FM_aa_vel** | **FM 50 RK4** | **512** | **100/0/0** | **✅ 修复** | **✅ 完成** | **PCK=23.01%, MSE=1.0240, SRGR=22.86%, Div=0.5266** |
+| **FM_aa_velAcc** | **FM 50 RK4** | **512** | **100/50/0** | **✅ 修复** | **✅ 完成** | **PCK=23.05%, MSE=1.0134, SRGR=22.87%, Div=0.5205** |
+| **FM_6d** | **FM 50 RK4** | **512** | **100/50/0** | **✅ 修复** | **✅ 完成** | **PCK=16.13%, MSE=1.1739, Div=0.6663** |
 
 ---
 
@@ -193,6 +200,7 @@ ffmpeg -y -i input.mp4 -i audio.wav -map 0:v -map 1:a -c:v copy -c:a aac -shorte
 | `bvh_output/FM_v6_rk4.bvh` | FM_v6 原始 (无平滑) |
 | `bvh_output/Original_DiffSHEG.bvh` | 原版 DiffSHEG 输出 |
 | `bvh_output/comparison_side_by_side_audio.mp4` | 并排对比视频 (含音频) |
+| `bvh_output/step1_comparison.mp4` | 1-Step 推理极限对比视频 (含配音) |
 
 ---
 
@@ -204,5 +212,9 @@ ffmpeg -y -i input.mp4 -i audio.wav -map 0:v -map 1:a -c:v copy -c:a aac -shorte
 - [x] ~~抖动优化~~ (自适应 Gaussian 后处理)
 - [x] ~~并排对比渲染~~ (蓝=Ours, 橙=Original)
 - [x] ~~更新 article/experiment_results.md~~ (新增最终结果章节)
-- [ ] 定量评估 (FGD/MSE/PCK) + 论文写作
-- [ ] 训练 DDPM_v2 (正确关节顺序, 可选)
+- [x] ~~启动 DDPM_v2 和消融实验排队训练~~ (DDPM_v2 PID 4925，队列监控 PID 70283)
+- [x] ~~监控云端队列进度，等待 DDPM_v2 及 3 个 FM 消融实验、1 个 6D 实验全部训练完成 (已优化排队任务为每 50 epoch 验证以提速 10 倍)~~
+- [x] ~~运行 `eval_metrics.py` 收集各模型指标 (FGD/MSE/PCK/Diversity)~~
+- [x] ~~编写统计脚本提取并验证生成的关节标准差 (std) 与表情数据活跃度~~ (已在本地及数据预处理中验证并输出标准差)
+- [x] ~~使用 Blender 渲染 Ours (FM/DDPM 联合训练) vs Original 并排对比视频~~ (已生成 comparison_side_by_side_audio.mp4 对比视频)
+- [x] ~~填入 `article/experiment_results.md` 并撰写论文正文~~ (数据均已填入第十节，所有最新学术图表均已重新编译生成)

@@ -203,4 +203,179 @@ plt.savefig(os.path.join(out_dir, 'fgd_comparison.pdf'), bbox_inches='tight')
 plt.close()
 print("4. FGD comparison saved")
 
+# ============================================================
+# Figure 5: Main Results Unified Comparison (Ours vs DDPM_v2)
+# ============================================================
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4.5))
+
+models = ['DDPM_v2\n(Baseline)', 'FM_aa_velAcc\n(Ours)']
+pck_vals = [20.56, 23.05]
+mse_vals = [1.1810, 1.0134]
+colors_main = [C_DDPM, C_FM50]
+
+# Subplot 1: PCK
+bars1 = ax1.bar(models, pck_vals, color=colors_main, alpha=0.85, edgecolor='white', linewidth=1.5, width=0.45)
+ax1.set_ylabel('PCK ↑ (%)', fontsize=12)
+ax1.set_title('Joint Position Accuracy (PCK)', fontsize=12, fontweight='bold')
+ax1.set_ylim(0, 28)
+ax1.grid(True, axis='y', alpha=0.3)
+for bar in bars1:
+    yval = bar.get_height()
+    ax1.text(bar.get_x() + bar.get_width()/2, yval + 0.5, f'{yval:.2f}%', ha='center', fontsize=11, fontweight='bold')
+ax1.text(0.5, 25, '+2.49% improvement', ha='center', fontsize=11, color=C_FM50, fontweight='bold', style='italic')
+
+# Subplot 2: MSE
+bars2 = ax2.bar(models, mse_vals, color=colors_main, alpha=0.85, edgecolor='white', linewidth=1.5, width=0.45)
+ax2.set_ylabel('MSE ↓', fontsize=12)
+ax2.set_title('Joint Reconstruction Error (MSE)', fontsize=12, fontweight='bold')
+ax2.set_ylim(0, 1.4)
+ax2.grid(True, axis='y', alpha=0.3)
+for bar in bars2:
+    yval = bar.get_height()
+    ax2.text(bar.get_x() + bar.get_width()/2, yval + 0.02, f'{yval:.4f}', ha='center', fontsize=11, fontweight='bold')
+ax2.text(0.5, 1.25, '14.2% error reduction', ha='center', fontsize=11, color=C_FM50, fontweight='bold', style='italic')
+
+plt.suptitle('Ours (Flow Matching) vs. DDPM Baseline (Latest Unified Experiment)', fontsize=14, fontweight='bold', y=1.02)
+plt.tight_layout()
+plt.savefig(os.path.join(out_dir, 'main_comparison_unified.png'), dpi=300, bbox_inches='tight')
+plt.savefig(os.path.join(out_dir, 'main_comparison_unified.pdf'), bbox_inches='tight')
+plt.close()
+print("5. Main comparison unified saved")
+
+# ============================================================
+# Figure 6: Physical Constraints Ablation (PCK & MSE)
+# ============================================================
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4.5))
+
+ablation_models = ['Base FM\n(No constraints)', '+Vel\n(w=100)', '+Vel+Acc\n(Ours)']
+ablation_pck = [23.01, 23.01, 23.05]
+ablation_mse = [1.0169, 1.0240, 1.0134]
+colors_ablation = ['#95A5A6', C_FM10, C_FM50]
+
+# Subplot 1: PCK
+bars1 = ax1.bar(ablation_models, ablation_pck, color=colors_ablation, alpha=0.85, edgecolor='white', linewidth=1.5, width=0.5)
+ax1.set_ylabel('PCK ↑ (%)', fontsize=12)
+ax1.set_title('PCK Accuracy vs. Constraints', fontsize=12, fontweight='bold')
+ax1.set_ylim(22.0, 23.3)  # Zoomed in to show difference
+ax1.grid(True, axis='y', alpha=0.3)
+for bar in bars1:
+    yval = bar.get_height()
+    ax1.text(bar.get_x() + bar.get_width()/2, yval + 0.01, f'{yval:.2f}%', ha='center', fontsize=11, fontweight='bold')
+
+# Subplot 2: MSE
+bars2 = ax2.bar(ablation_models, ablation_mse, color=colors_ablation, alpha=0.85, edgecolor='white', linewidth=1.5, width=0.5)
+ax2.set_ylabel('MSE ↓', fontsize=12)
+ax2.set_title('MSE Reconstruction vs. Constraints', fontsize=12, fontweight='bold')
+ax2.set_ylim(0.95, 1.04)  # Zoomed in to show difference
+ax2.grid(True, axis='y', alpha=0.3)
+for bar in bars2:
+    yval = bar.get_height()
+    ax2.text(bar.get_x() + bar.get_width()/2, yval + 0.001, f'{yval:.4f}', ha='center', fontsize=11, fontweight='bold')
+
+plt.suptitle('Ablation Study: Impact of Physical Constraints on Joint Estimation', fontsize=14, fontweight='bold', y=1.02)
+plt.tight_layout()
+plt.savefig(os.path.join(out_dir, 'physical_constraints_ablation.png'), dpi=300, bbox_inches='tight')
+plt.savefig(os.path.join(out_dir, 'physical_constraints_ablation.pdf'), bbox_inches='tight')
+plt.close()
+print("6. Physical constraints ablation saved")
+
+# ============================================================
+# Figure 7: Rotation Representation Comparison (PCK & Diversity)
+# ============================================================
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4.5))
+
+rep_models = ['Axis-Angle\n(500ep Ours)', '6D\n(99ep)', '6D\n(500ep)']
+rep_pck = [23.05, 10.85, 16.13]
+rep_div = [0.5205, 0.8413, 0.6663]
+colors_rep = [C_FM50, C_FM1, C_FM1S]
+
+# Subplot 1: PCK
+bars1 = ax1.bar(rep_models, rep_pck, color=colors_rep, alpha=0.85, edgecolor='white', linewidth=1.5, width=0.5)
+ax1.set_ylabel('PCK ↑ (%)', fontsize=12)
+ax1.set_title('Joint Position Accuracy (PCK)', fontsize=12, fontweight='bold')
+ax1.set_ylim(0, 27)
+ax1.grid(True, axis='y', alpha=0.3)
+for bar in bars1:
+    yval = bar.get_height()
+    ax1.text(bar.get_x() + bar.get_width()/2, yval + 0.5, f'{yval:.2f}%', ha='center', fontsize=11, fontweight='bold')
+
+# Subplot 2: Diversity
+bars2 = ax2.bar(rep_models, rep_div, color=colors_rep, alpha=0.85, edgecolor='white', linewidth=1.5, width=0.5)
+ax2.set_ylabel('Diversity Index ↑ (L1)', fontsize=12)
+ax2.set_title('Motion Diversity Index (L1)', fontsize=12, fontweight='bold')
+ax2.set_ylim(0, 1.0)
+ax2.grid(True, axis='y', alpha=0.3)
+for bar in bars2:
+    yval = bar.get_height()
+    ax2.text(bar.get_x() + bar.get_width()/2, yval + 0.02, f'{yval:.4f}', ha='center', fontsize=11, fontweight='bold')
+
+plt.suptitle('Rotation Representation Comparison: Axis-Angle vs. 6D Representation', fontsize=14, fontweight='bold', y=1.02)
+plt.tight_layout()
+plt.savefig(os.path.join(out_dir, 'rotation_representation_comparison.png'), dpi=300, bbox_inches='tight')
+plt.savefig(os.path.join(out_dir, 'rotation_representation_comparison.pdf'), bbox_inches='tight')
+plt.close()
+print("7. Rotation representation comparison saved")
+
+# ============================================================
+# Figure 8: All Models Unified Comparison (PCK, MSE, Diversity)
+# ============================================================
+fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+
+all_models = [
+    'DDPM_v2\n(Baseline)', 
+    'FM_aa_base\n(Base)', 
+    'FM_aa_vel\n(+Vel)', 
+    'FM_aa_velAcc\n(+Vel+Acc)', 
+    'FM_6d\n(Ep99)', 
+    'FM_6d\n(Ep500)'
+]
+all_pck = [20.56, 23.01, 23.01, 23.05, 10.85, 16.13]
+all_mse = [1.1810, 1.0169, 1.0240, 1.0134, 1.4944, 1.1739]
+all_div = [0.6495, 0.5240, 0.5266, 0.5205, 0.8413, 0.6663]
+
+colors_all = [C_DDPM, '#95A5A6', C_FM10, C_FM50, C_FM1, C_FM1S]
+
+# Panel 1: PCK
+bars0 = axes[0].bar(all_models, all_pck, color=colors_all, alpha=0.85, edgecolor='white', linewidth=1)
+axes[0].set_ylabel('PCK ↑ (%)', fontsize=12)
+axes[0].set_title('Joint Position Accuracy (PCK)', fontsize=12, fontweight='bold')
+axes[0].set_ylim(0, 28)
+axes[0].grid(True, axis='y', alpha=0.3)
+axes[0].set_xticks(range(len(all_models)))
+axes[0].set_xticklabels(all_models, rotation=30, ha='right', fontsize=9)
+for bar in bars0:
+    yval = bar.get_height()
+    axes[0].text(bar.get_x() + bar.get_width()/2, yval + 0.5, f'{yval:.1f}%', ha='center', fontsize=9, fontweight='bold')
+
+# Panel 2: MSE
+bars1 = axes[1].bar(all_models, all_mse, color=colors_all, alpha=0.85, edgecolor='white', linewidth=1)
+axes[1].set_ylabel('MSE ↓', fontsize=12)
+axes[1].set_title('Joint Reconstruction Error (MSE)', fontsize=12, fontweight='bold')
+axes[1].set_ylim(0, 1.8)
+axes[1].grid(True, axis='y', alpha=0.3)
+axes[1].set_xticks(range(len(all_models)))
+axes[1].set_xticklabels(all_models, rotation=30, ha='right', fontsize=9)
+for bar in bars1:
+    yval = bar.get_height()
+    axes[1].text(bar.get_x() + bar.get_width()/2, yval + 0.03, f'{yval:.3f}', ha='center', fontsize=9, fontweight='bold')
+
+# Panel 3: Diversity
+bars2 = axes[2].bar(all_models, all_div, color=colors_all, alpha=0.85, edgecolor='white', linewidth=1)
+axes[2].set_ylabel('Diversity Index ↑ (L1)', fontsize=12)
+axes[2].set_title('Motion Diversity Index (L1)', fontsize=12, fontweight='bold')
+axes[2].set_ylim(0, 1.0)
+axes[2].grid(True, axis='y', alpha=0.3)
+axes[2].set_xticks(range(len(all_models)))
+axes[2].set_xticklabels(all_models, rotation=30, ha='right', fontsize=9)
+for bar in bars2:
+    yval = bar.get_height()
+    axes[2].text(bar.get_x() + bar.get_width()/2, yval + 0.02, f'{yval:.3f}', ha='center', fontsize=9, fontweight='bold')
+
+plt.suptitle('Unified Comprehensive Evaluation (500 Epochs Unified Experiment)', fontsize=15, fontweight='bold', y=1.02)
+plt.tight_layout()
+plt.savefig(os.path.join(out_dir, 'unified_all_metrics.png'), dpi=300, bbox_inches='tight')
+plt.savefig(os.path.join(out_dir, 'unified_all_metrics.pdf'), bbox_inches='tight')
+plt.close()
+print("8. Unified all metrics saved")
+
 print(f"\nAll figures saved to {out_dir}")

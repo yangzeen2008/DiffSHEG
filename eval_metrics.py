@@ -25,31 +25,111 @@ class AverageMeter:
 def main():
     opt = TrainCompOptions().parse()
     opt.is_train = False
+    opt.save_root = os.path.join(opt.checkpoints_dir, opt.dataset_name, opt.name)
+    opt.model_dir = os.path.join(opt.save_root, 'model')
+    opt.meta_dir = os.path.join(opt.save_root, 'meta')
     
+    # Initialize BEAT option dimensions
+    if opt.dataset_name.lower() == 'beat':
+        opt.data_root = 'data/BEAT'
+        opt.fps = 15
+        opt.net_dim_pose = 192  # body: 141, expression: 51
+        opt.dim_pose = 141
+        if opt.remove_hand:
+            opt.dim_pose = 33
+        if opt.rot_6d:
+            opt.dim_pose = 282
+        opt.expression_dim = 51
+
+        if opt.expression_only or opt.gesCondition_expression_only:
+            opt.net_dim_pose = opt.expression_dim
+            opt.e_path = f'data/BEAT/beat_cache/{opt.beat_cache_name}/weights/face_300.bin'
+        elif opt.gesture_only or opt.expCondition_gesture_only != None or opt.textExpEmoCondition_gesture_only:
+            opt.net_dim_pose = opt.dim_pose
+            if opt.rot_6d:
+                opt.e_path = f'data/BEAT/beat_cache/{opt.beat_cache_name}/weights/ges_axis_angle_300.bin'
+            elif opt.axis_angle:
+                opt.e_path = f'data/BEAT/beat_cache/{opt.beat_cache_name}/weights/ges_axis_angle_300.bin'
+            else:
+                opt.e_path = f'data/BEAT/beat_cache/{opt.beat_cache_name}/weights/ae_300.bin'
+        else:
+            opt.net_dim_pose = opt.dim_pose + opt.expression_dim
+            if opt.rot_6d:
+                opt.e_path = f'data/BEAT/beat_cache/{opt.beat_cache_name}/weights/ges_axis_angle_300.bin'
+            elif opt.axis_angle:
+                opt.e_path = f'data/BEAT/beat_cache/{opt.beat_cache_name}/weights/ges_axis_angle_300.bin'
+            else:
+                raise NotImplementedError
+        
+        opt.split_pos = opt.dim_pose
+        opt.audio_dim = 128
+        if opt.use_aud_feat:
+            opt.audio_dim = 1024
+        opt.style_dim = 30
+        opt.speaker_dim = 30
+        opt.word_index_num = 5793
+        opt.word_dims = 300
+        opt.word_f = 128
+        opt.emotion_f = 8
+        opt.emotion_dims = 8
+        opt.freeze_wordembed = False
+        opt.hidden_size = 256
+        opt.n_layer = 4
+        if getattr(opt, 'hidden_size_override', 0) > 0:
+            opt.hidden_size = opt.hidden_size_override
+        if getattr(opt, 'n_layer_override', 0) > 0:
+            opt.n_layer = opt.n_layer_override
+
+        if opt.n_poses == 150:
+            opt.stride = 50
+        elif opt.n_poses == 34: 
+            opt.stride = 10
+        opt.pose_fps = 15
+        opt.vae_length = 300
+        opt.new_cache = False
+        opt.audio_norm = False
+        opt.facial_norm = True
+        opt.pose_norm = True
+        opt.train_data_path = f'data/BEAT/beat_cache/{opt.beat_cache_name}/train/'
+        opt.val_data_path = f'data/BEAT/beat_cache/{opt.beat_cache_name}/val/'
+        opt.test_data_path = f'data/BEAT/beat_cache/{opt.beat_cache_name}/test/'
+        opt.mean_pose_path = f'data/BEAT/beat_cache/{opt.beat_cache_name}/train/'
+        opt.std_pose_path = f'data/BEAT/beat_cache/{opt.beat_cache_name}/train/'
+        opt.multi_length_training = [1.0]
+        opt.audio_rep = 'wave16k'
+        opt.facial_rep = 'facial52'
+        opt.speaker_id = 'id'
+        opt.pose_rep = 'bvh_rot'
+        opt.word_rep = 'text'
+        opt.sem_rep = 'sem'
+        opt.emo_rep = 'emo'
+
     # Build model
-    from models.transformer import TransformerModel
-    if opt.flow_matching:
-        from models.flow_matching import FlowMatchingWrapper
-        model = FlowMatchingWrapper(TransformerModel(opt), opt)
-    else:
-        from models.gaussian_diffusion import GaussianDiffusion
-        model = GaussianDiffusion(opt, TransformerModel(opt))
+    from runner import build_models
+    encoder = build_models(opt, opt.net_dim_pose, opt.audio_dim, opt.audio_latent_dim, opt.style_dim)
     
     # Build FGD eval model
     eval_model = None
     if not opt.no_fgd:
-        from train_eval_net import build_fgd_val_model
+        from runner import build_fgd_val_model
         eval_model = build_fgd_val_model(opt)
     
-    model = model.cuda()
+    if not torch.cuda.is_available() or (opt.gpu_id is not None and opt.gpu_id < 0):
+        device = torch.device('cpu')
+    else:
+        gpu_id = opt.gpu_id if opt.gpu_id is not None else 0
+        device = torch.device(f'cuda:{gpu_id}')
+    opt.device = device
+    
+    encoder = encoder.to(device)
     if eval_model is not None:
-        eval_model = eval_model.cuda()
+        eval_model = eval_model.to(device)
     
     # Load checkpoint
-    ckpt_path = os.path.join(opt.save_dir, "model", opt.ckpt)
+    ckpt_path = os.path.join(opt.model_dir, opt.ckpt)
     print(f"Loading checkpoint: {ckpt_path}")
     ckpt = torch.load(ckpt_path, map_location='cpu')
-    model.load_state_dict(ckpt['model'], strict=False)
+    encoder.load_state_dict(ckpt['encoder'], strict=False)
     epoch = ckpt.get('ep', 0)
     print(f"Loaded epoch {epoch}")
     
@@ -60,8 +140,11 @@ def main():
         val_dataset, batch_size=opt.batch_size, shuffle=False,
         num_workers=0, drop_last=True, pin_memory=True)
     
-    device = torch.device(f'cuda:{opt.gpu_id}')
-    model.eval()
+    encoder.eval()
+    
+    # Build trainer to encapsulate generation/sampling logic (DDPM vs FM)
+    from trainers import DDPMTrainer_beat
+    trainer = DDPMTrainer_beat(opt, encoder, eval_model=eval_model)
     
     # Metrics
     mse_meter = AverageMeter()
@@ -79,8 +162,10 @@ def main():
     
     with torch.no_grad():
         for i, batch_data in tqdm(enumerate(val_loader), total=len(val_loader)):
-            # Get target pose
-            if opt.axis_angle:
+            # Get target pose (matching ddpm_beat_trainer.py)
+            if getattr(opt, 'rot_6d', False):
+                tar_pose = batch_data["pose_6d"]
+            elif opt.axis_angle:
                 tar_pose = batch_data["pose_axis_angle"]
             else:
                 tar_pose = batch_data["pose"]
@@ -92,42 +177,53 @@ def main():
             else:
                 motions = tar_pose
             
-            # Audio
-            aud_feat = batch_data.get("aud_feat")
-            if aud_feat is not None:
-                aud_feat = aud_feat.to(device)
-            audio_emb = batch_data["audio_emb"].to(device) if "audio_emb" in batch_data else None
+            # Audio & Person ID & add_cond setup (matching ddpm_beat_trainer.py val loop)
+            audio_emb = batch_data["aud_feat"].to(device) if opt.audio_rep is not None else None
             
-            # Person ID
-            p_id = batch_data.get("p_id")
+            if opt.expCondition_gesture_only:
+                in_facial = batch_data["facial"].to(device) if opt.facial_rep is not None else None
+                audio_emb = torch.cat((audio_emb, in_facial), dim=-1)
+            elif opt.gesCondition_expression_only:
+                audio_emb = torch.cat((audio_emb, tar_pose), dim=-1)
+            
+            add_cond = {}
+            if opt.addTextCond:
+                in_word = batch_data["word"].to(device) if opt.word_rep is not None else None
+                add_cond['text'] = in_word
+            if opt.addEmoCond:
+                in_emo = batch_data["emo"].to(device) if opt.emo_rep is not None else None
+                add_cond['emo'] = in_emo
+            if opt.expAddHubert or opt.addHubert:
+                add_cond["pretrain_aud_feat"] = batch_data["pretrain_aud_feat"].to(device)
+            
+            p_id = batch_data["id"] if opt.speaker_id else None
             if p_id is not None:
-                p_id = p_id.to(device)
+                p_id = trainer.one_hot(p_id, opt.speaker_dim).to(device)
             
+            if opt.remove_audio and audio_emb is not None:
+                audio_emb = torch.zeros_like(audio_emb).to(audio_emb.device)
+            if opt.remove_style and p_id is not None:
+                p_id = torch.zeros_like(p_id).to(p_id.device)
+                
             B = motions.shape[0]
             
             # Inpainting dict
             overlap_len = getattr(opt, 'overlap_len', 4)
-            inpaint_dict = {
-                'gt': motions[:, :overlap_len],
-                'outpainting_mask': torch.zeros(B, motions.shape[1], dtype=torch.bool, device=device)
-            }
-            inpaint_dict['outpainting_mask'][:, :overlap_len] = True
-            
-            add_cond = {}
-            if aud_feat is not None:
-                add_cond['aud_feat'] = aud_feat
+            inpaint_dict = {}
+            if overlap_len > 0:
+                inpaint_dict['gt'] = motions
+                inpaint_dict['outpainting_mask'] = torch.zeros_like(motions, dtype=torch.bool, device=device)
+                inpaint_dict['outpainting_mask'][:, :overlap_len] = True
             
             # Generate
-            net_dim = opt.net_dim_pose if opt.gesture_only else opt.net_dim_pose + opt.net_dim_facial
-            outputs = model.sample(
-                audio_emb, p_id, net_dim, add_cond, inpaint_dict,
-                fm_steps=opt.fm_sample_steps if opt.flow_matching else None
+            outputs = trainer.generate_batch(
+                audio_emb, p_id, opt.net_dim_pose, add_cond, inpaint_dict
             )
             
             # FGD
             if eval_model is not None and not opt.no_fgd:
-                latent_out = eval_model(outputs[:, :34, :].float())
-                latent_ori = eval_model(motions[:, :34, :].float())
+                latent_out = eval_model(outputs[:, :34, :opt.split_pos].float())
+                latent_ori = eval_model(motions[:, :34, :opt.split_pos].float())
                 if latent_out_all is None:
                     latent_out_all = latent_out.cpu().numpy()
                     latent_ori_all = latent_ori.cpu().numpy()
@@ -136,8 +232,37 @@ def main():
                     latent_ori_all = np.concatenate([latent_ori_all, latent_ori.cpu().numpy()])
             
             # MSE & PCK
-            outputs_np = outputs.cpu()
-            motions_np = motions.cpu()
+            seq = outputs.shape[1]
+            if opt.rot_6d:
+                import datasets.rotation_converter as rot_cvt
+                n_j = opt.split_pos // 6
+                
+                # Outputs: convert 6D to normalized axis-angle
+                out_ges_6d = outputs[..., :opt.split_pos]
+                mat_o = rot_cvt.rotation_6d_to_matrix(out_ges_6d.reshape(B*seq, n_j, 6))
+                aa_o = rot_cvt.matrix_to_axis_angle(mat_o).reshape(B, seq, n_j*3)
+                
+                std_safe = np.maximum(val_dataset.std_pose_axis_angle, 1e-2)
+                mean_t = torch.from_numpy(val_dataset.mean_pose_axis_angle).to(device)
+                std_t = torch.from_numpy(std_safe).to(device)
+                aa_norm_o = (aa_o - mean_t) / std_t
+                
+                # Motions: retrieve normalized axis-angle ground truth
+                aa_norm_g = batch_data["pose_axis_angle"].to(device)
+                
+                # Append facial expression if present
+                if outputs.shape[-1] > opt.split_pos:
+                    outputs_for_metric = torch.cat([aa_norm_o, outputs[..., opt.split_pos:]], dim=-1)
+                    motions_for_metric = torch.cat([aa_norm_g, motions[..., opt.split_pos:]], dim=-1)
+                else:
+                    outputs_for_metric = aa_norm_o
+                    motions_for_metric = aa_norm_g
+                    
+                outputs_np = outputs_for_metric.cpu()
+                motions_np = motions_for_metric.cpu()
+            else:
+                outputs_np = outputs.cpu()
+                motions_np = motions.cpu()
             
             C = outputs_np.shape[-1]
             seq = outputs_np.shape[1]

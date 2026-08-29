@@ -16,6 +16,10 @@
 > 代码**自动保存最优 checkpoint**（`mse_best.tar` / `pck_best.tar`），无需手动找最佳点。
 > 如果日志中 MSE 连续 50+ epoch 不降，可以 `Ctrl+C` 提前停止。
 
+> [!WARNING]
+> **警告：请勿在命令中加入 `--gesture_only` 标志**
+> 由于默认启用了联合多模态生成（`--unidiffuser True`），模型内部会强制执行手势与表情的分割解包操作。如果设置了 `--gesture_only`，会导致输入维度不足发生 `ValueError: not enough values to unpack` 崩溃。所有的训练和测试均应以表情+手势联合模式（默认）运行。
+
 > [!NOTE]
 > **评估指标说明**
 > 
@@ -34,7 +38,7 @@
 | `--mode` | `train` | |
 | `--dataset_name` | `beat` | |
 | `--flow_matching` | ✓ | 使用 FM 而非 DDPM |
-| `--gesture_only` | ✓ | 只生成手势（141 维） |
+| `--gesture_only` | ❌ (不加) | 必须为 False (在多模态下避免解包崩溃) |
 | `--axis_angle` | `True` (默认) | axis-angle 旋转表示 |
 | `--fm_sample_steps` | `50` | ODE 求解步数 |
 | `--n_poses` | `34` | 每片段帧数（~2.27s @15fps） |
@@ -58,7 +62,6 @@ nohup python runner.py \
     --name beat_FM_aa \
     --mode train \
     --flow_matching \
-    --gesture_only \
     --fm_sample_steps 50 \
     --n_poses 34 \
     --batch_size 512 \
@@ -97,7 +100,6 @@ nohup python runner.py \
     --name beat_FM_6d \
     --mode train \
     --flow_matching \
-    --gesture_only \
     --rot_6d \
     --ortho_loss_weight 0.01 \
     --fm_sample_steps 50 \
@@ -136,7 +138,6 @@ nohup python runner.py \
     --dataset_name beat \
     --name beat_DDPM_baseline \
     --mode train \
-    --gesture_only \
     --n_poses 34 \
     --batch_size 256 \
     --workers 32 \
@@ -180,7 +181,7 @@ print(f'epoch: {ckpt[\"ep\"]}, total_it: {ckpt[\"total_it\"]}')
 # 恢复中断的训练（加 --resume）
 nohup python runner.py \
     --dataset_name beat --name beat_FM_aa --mode train \
-    --flow_matching --gesture_only \
+    --flow_matching \
     --fm_sample_steps 50 --n_poses 34 \
     --batch_size 512 --workers 32 --num_epochs 500 \
     --no_fgd --gpu_id 0 \
@@ -209,7 +210,7 @@ nohup python runner.py \
 | `--mode` | `test` | |
 | `--ckpt` | `mse_best.tar` | 用 MSE 最优的 ckpt |
 | `--flow_matching` | ✓ | |
-| `--gesture_only` | ✓ | |
+| `--gesture_only` | ❌ (不加) | 必须不加，见第一阶段警告 |
 | `--fm_sample_steps` | `50` | |
 | `--n_poses` | `34` | |
 | `--no_fgd` | **不加**（除非评估器不可用） | 需要 FGD |
@@ -221,7 +222,6 @@ python runner.py \
     --name beat_FM_aa \
     --mode test \
     --flow_matching \
-    --gesture_only \
     --fm_sample_steps 50 \
     --n_poses 34 \
     --gpu_id 0 \
@@ -242,7 +242,6 @@ python runner.py \
     --name beat_FM_6d \
     --mode test \
     --flow_matching \
-    --gesture_only \
     --rot_6d \
     --fm_sample_steps 50 \
     --n_poses 34 \
@@ -260,7 +259,6 @@ python runner.py \
     --dataset_name beat \
     --name beat_DDPM_baseline \
     --mode test \
-    --gesture_only \
     --n_poses 34 \
     --gpu_id 0 \
     --beat_cache_name beat_4english_15_141 \
@@ -279,7 +277,6 @@ for STEPS in 5 10 25 50 100; do
         --name beat_FM_aa \
         --mode test \
         --flow_matching \
-        --gesture_only \
         --fm_sample_steps $STEPS \
         --n_poses 34 \
         --gpu_id 0 \
@@ -349,7 +346,6 @@ nohup python runner.py \
     --name beat_FM_aa_base \
     --mode train \
     --flow_matching \
-    --gesture_only \
     --fm_sample_steps 50 \
     --n_poses 34 \
     --batch_size 512 \
@@ -379,7 +375,6 @@ nohup python runner.py \
     --name beat_FM_aa_vel \
     --mode train \
     --flow_matching \
-    --gesture_only \
     --fm_sample_steps 50 \
     --n_poses 34 \
     --batch_size 512 \
@@ -409,7 +404,6 @@ nohup python runner.py \
     --name beat_FM_aa_velAcc \
     --mode train \
     --flow_matching \
-    --gesture_only \
     --fm_sample_steps 50 \
     --n_poses 34 \
     --batch_size 512 \

@@ -59,9 +59,12 @@ def build_models(opt, dim_pose, audio_dim=128, audio_latent_dim=256, style_dim=4
 
 def build_fgd_val_model(opt):
     eval_model_module = __import__(f"models.motion_autoencoder", fromlist=["something"])
-    eval_model = getattr(eval_model_module, 'HalfEmbeddingNet')(opt)
+    import copy
+    eval_opt = copy.deepcopy(opt)
+    eval_opt.net_dim_pose = opt.split_pos
+    eval_model = getattr(eval_model_module, 'HalfEmbeddingNet')(eval_opt)
 
-    print(f"init 'HalfEmbeddingNet' success")
+    print(f"init 'HalfEmbeddingNet' success with net_dim_pose={eval_opt.net_dim_pose}")
     return eval_model
 
 def main():
@@ -284,6 +287,10 @@ def main_worker(gpu_id, ngpus_per_node, opt):
                 if not opt.no_fgd:
                     # eval_model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(eval_model)  
                     eval_model = torch.nn.parallel.DistributedDataParallel(eval_model, device_ids=[opt.rank], broadcast_buffers=True, find_unused_parameters=False).to(opt.rank)
+    elif opt.gpu_id is not None and opt.gpu_id < 0:
+        model = model.to('cpu')
+        if not opt.no_fgd:
+            eval_model = eval_model.to('cpu')
     elif opt.gpu_id is not None and torch.cuda.is_available():
         torch.cuda.set_device(opt.gpu_id)
         model = model.cuda(opt.gpu_id)
@@ -295,12 +302,17 @@ def main_worker(gpu_id, ngpus_per_node, opt):
         if not opt.no_fgd:
             eval_model = eval_model.to(device)
     else:
-        # Use single gpu
-        model = model.cuda()
-        if not opt.no_fgd:
-            eval_model = eval_model.cuda()
+        if torch.cuda.is_available():
+            # Use single gpu
+            model = model.cuda()
+            if not opt.no_fgd:
+                eval_model = eval_model.cuda()
+        else:
+            model = model.to('cpu')
+            if not opt.no_fgd:
+                eval_model = eval_model.to('cpu')
 
-    if torch.cuda.is_available():
+    if torch.cuda.is_available() and (opt.gpu_id is None or opt.gpu_id >= 0):
         if opt.gpu_id:
             device = torch.device('cuda:{}'.format(opt.gpu_id))
         else:

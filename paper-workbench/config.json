@@ -1,0 +1,33 @@
+{
+  "project_name": "DiffSHEG Flow Matching Thesis",
+  "manuscript": "article/thesis_draft.md",
+  "roadmap": "article/thesis_roadmap.md",
+  "results": "article/experiment_results.md",
+  "progress": "PROGRESS.md",
+  "figures_dir": "article/figures",
+  "bibliography": "paper-workbench/references.bib",
+  "tasks": "paper-workbench/tasks.md",
+  "claims": "paper-workbench/claims.md",
+  "literature": "paper-workbench/literature.md",
+  "experiments": "paper-workbench/experiments.md",
+  "figures_registry": "paper-workbench/figures.md",
+  "dashboard": "paper-workbench/DASHBOARD.md",
+  "expected_chapters": [
+    "摘要与关键词",
+    "第一章 绪论",
+    "第二章 理论基础与相关技术",
+    "第三章 基于流匹配的多模态数字人动画生成方法",
+    "第四章 实验与结果分析",
+    "第五章 总结与展望",
+    "参考文献",
+    "致谢"
+  ],
+  "scan_markdown": [
+    "PAPER_WORKBENCH.md",
+    "PROGRESS.md",
+    "article/*.md",
+    "docs/*.md",
+    "paper-workbench/*.md"
+  ]
+}
+

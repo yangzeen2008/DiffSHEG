@@ -286,6 +286,7 @@ df -h /root/autodl-tmp
 
 | 症状 | 原因 | 解决方案 |
 |------|------|---------|
+| `ValueError: not enough values to unpack` | 启用了联合多模态但加了 `--gesture_only` 导致解包维度不匹配 | **禁用 `--gesture_only` 标志**。默认以表情+手势联合模式训练和评估。 |
 | `pip install` 卡死不动 | PyTorch 版本回溯 | 锁死版本号（见第 3.1 节） |
 | `OSError: Not enough free space` | 数据盘爆满 | 删 raw 或 test 缓存（见第 1.2 节） |
 | `ModuleNotFoundError: utils` | 漏传代码文件 | 上传 utils/ 文件夹（见第 3.3 节） |

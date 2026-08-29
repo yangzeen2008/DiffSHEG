@@ -107,7 +107,7 @@ class DDPMTrainer_beat(object):
 
 
 
-        if self.opt.dataset_name == 'beat' and (self.opt.expression_only or self.opt.net_dim_pose == 192):
+        if self.opt.dataset_name == 'beat' and (self.opt.expression_only or self.opt.net_dim_pose in (192, 333) or self.opt.unidiffuser):
             self.face_mean = np.load(f"data/BEAT/beat_cache/{self.opt.beat_cache_name}/train/facial52/json_mean.npy")
             self.face_std = np.load(f"data/BEAT/beat_cache/{self.opt.beat_cache_name}/train/facial52/json_std.npy")
             self.facial_list = ['browDownLeft', 'browDownRight', 'browInnerUp', 'browOuterUpLeft', 
@@ -1511,7 +1511,27 @@ class DDPMTrainer_beat(object):
                     out_motions, out_expression = np.split(out_motions, [self.opt.split_pos], axis=-1)
 
 
-                if self.opt.axis_angle:
+                if getattr(self.opt, 'rot_6d', False):
+                    B, T, C = out_motions.shape
+                    n_j = C // 6
+                    mat_o = rot_cvt.rotation_6d_to_matrix(torch.from_numpy(out_motions).reshape(B * T, n_j, 6))
+                    aa_o = rot_cvt.matrix_to_axis_angle(mat_o).reshape(B, T, n_j * 3)
+                    
+                    # For FGD metric saving, save normalized axis-angle
+                    std_safe = np.maximum(test_dataset.std_pose_axis_angle, 1e-2)
+                    mean_t = torch.from_numpy(test_dataset.mean_pose_axis_angle)
+                    std_t = torch.from_numpy(std_safe)
+                    aa_norm_o = (aa_o - mean_t) / std_t
+                    axis_angle_out_path = os.path.join(results_dir, "axis_angle")
+                    os.makedirs(axis_angle_out_path, exist_ok=True)
+                    np.save(pjoin(axis_angle_out_path, f"{name.split('.')[0]}.npy"), aa_norm_o.numpy())
+                    
+                    # Use raw axis-angle directly to convert to Euler angles without any scale distortion
+                    euler_out = rot_cvt.axis_angle_to_euler_angles(aa_o.reshape(B, T, n_j, 3)).reshape(B, T, n_j * 3)
+                    euler_out = euler_out * (180 / np.pi)
+                    out_motions = (euler_out - test_dataset.mean_pose) / test_dataset.std_pose
+                    out_motions = out_motions.numpy()
+                elif self.opt.axis_angle:
                     axis_angle_out_path = os.path.join(results_dir, "axis_angle")
                     os.makedirs(axis_angle_out_path, exist_ok=True)
                     np.save(pjoin(axis_angle_out_path, f"{name.split('.')[0]}.npy"), out_motions)
@@ -1526,7 +1546,8 @@ class DDPMTrainer_beat(object):
                 
 
                 np.save(pjoin(results_dir, f"{name.split('.')[0]}.npy"), out_motions)
-                out_denorm_euler = euler_out.reshape(-1, self.opt.dim_pose).numpy()
+                dim_pose_eval = 141 if getattr(self.opt, 'rot_6d', False) else self.opt.dim_pose
+                out_denorm_euler = euler_out.reshape(-1, dim_pose_eval).numpy()
                 self.result2target_vis(out_denorm_euler, os.path.join(results_dir, 'bvh'), f"{name.split('.')[0]}.bvh")
                 if self.opt.unidiffuser or self.opt.net_dim_pose == 192:
                     np.save(pjoin(results_dir_expr, f"{name.split('.')[0]}.npy"), out_expression)

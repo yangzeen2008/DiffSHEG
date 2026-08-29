@@ -1,7 +1,7 @@
 """
-DiffSHEG 推理步数对比渲染 (Blender 5.x)
+DiffSHEG 模型架构对比渲染 (Blender 5.x)
 ==========================================
-并排展示不同步数的后处理结果 + Original DDPM
+并排展示不同模型（相同采样步数下）的后处理结果
 
 1. 用 Blender 打开 assets/beat_visualize.blend
 2. Scripting -> Open -> 此脚本 -> Run Script
@@ -26,15 +26,15 @@ BVH_DIR = r"F:\study\DiffSHEG\bvh_output"
 
 # 对比模型: (标签, BVH文件名, 骨骼颜色主题)
 MODELS = [
-    ("1Step-smooth", "FM_v6_step1_smooth.bvh",  'THEME04'),  # 绿色
-    ("1Step-sigma3", "FM_v6_step1_sigma3.bvh",  'THEME07'),  # 青色
-    ("1Step-scaled", "FM_v6_step1_scaled.bvh",  'THEME01'),  # 蓝色
-    ("10Step",       "FM_v6_step10_smooth.bvh", 'THEME06'),  # 粉色
-    ("20Step",       "FM_v6_step20_smooth.bvh", 'THEME03'),  # 黄色
+    ("DDPM_v2",      "DDPM_v2_smooth.bvh",      'THEME01'),  # 蓝色
+    ("FM_aa_base",   "FM_aa_base_smooth.bvh",   'THEME04'),  # 绿色
+    ("FM_aa_vel",    "FM_aa_vel_smooth.bvh",    'THEME07'),  # 青色
+    ("FM_aa_velAcc", "FM_aa_velAcc_smooth.bvh", 'THEME06'),  # 粉色
+    ("FM_6d",        "FM_6d_smooth.bvh",        'THEME03'),  # 黄色
     ("Original",     "Original_DiffSHEG.bvh",   'THEME09'),  # 橙色
 ]
 
-OUTPUT_VIDEO = os.path.join(BVH_DIR, "step_comparison.mp4")
+OUTPUT_VIDEO = os.path.join(BVH_DIR, "model_comparison.mp4")
 
 SPACING = 100.0        # 骨骼间距 (BVH 单位)
 CAMERA_DISTANCE = 550  # 相机距离中心
@@ -135,7 +135,7 @@ def setup_camera(n_models):
     return cam
 
 
-def render_step_comparison():
+def render_model_comparison():
     scene = bpy.context.scene
     scene.render.fps = 15
     scene.render.resolution_x = 1920
@@ -148,7 +148,7 @@ def render_step_comparison():
     total_width = (n - 1) * SPACING
     start_x = -total_width / 2
 
-    tmp_dir = tempfile.mkdtemp(prefix="diffsheg_steps_")
+    tmp_dir = tempfile.mkdtemp(prefix="diffsheg_models_")
     max_frames = 0
 
     # 2. 导入每个模型
@@ -199,7 +199,7 @@ def render_step_comparison():
             break
 
     # 5. 渲染
-    print(f"\nRendering {max_frames} frames, {n} steps side-by-side...")
+    print(f"\nRendering {max_frames} frames, {n} models side-by-side...")
     bpy.ops.render.opengl(animation=True)
     print(f"Video saved: {OUTPUT_VIDEO}")
 
@@ -219,6 +219,10 @@ def render_step_comparison():
 
 
 # ============================================================
-render_step_comparison()
+render_model_comparison()
 print(f"\n✅ Done! -> {OUTPUT_VIDEO}")
 print(f"Layout: {' | '.join(m[0] for m in MODELS)}")
+
+if os.environ.get("QUIT_AFTER_RENDER") == "1":
+    print("Quitting Blender as QUIT_AFTER_RENDER is set...")
+    bpy.ops.wm.quit_blender()
