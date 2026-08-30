@@ -6,18 +6,21 @@ BEAT 数据集预处理脚本（一键运行）
   1. 按 train/val/test split 分配文件
   2. 解析 BVH，提取旋转数值行写成新格式
   3. WAV → 16kHz numpy (.npy)
-  4. JSON / TXT 直接复制
+   4. BVH 120 FPS、表情 60 FPS 按真实时间戳统一到 15 FPS
   5. 计算 mean/std 统计量
 
 用法：
     C:\\Users\\yangz\\miniconda3\\python.exe preprocess_beat.py
 """
 
-import os
-import sys
+import argparse
 import glob
+import hashlib
 import json
+import math
+import os
 import shutil
+import sys
 import numpy as np
 import soundfile as sf
 import librosa
@@ -28,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 # ===== 配置 =====
 RAW_DIR   = "./data/BEAT/raw/beat_english_v0.2.1/beat_english_v0.2.1"
-OUT_ROOT  = "./data/BEAT/beat_cache/beat_4english_15_141"
+OUT_ROOT  = "./data/BEAT/beat_cache/beat_4english_15_141_sync_v1"
 
 # 4 位英文说话人的文件夹 ID（对应 BEAT 数据集中的编号）
 SPEAKER_IDS = ["1", "2", "3", "4"]
@@ -41,7 +44,14 @@ VAL_RATIO   = 0.1
 # TEST_RATIO = 0.1（剩余）
 
 TARGET_AUDIO_SR = 16000   # 目标采样率
+TARGET_POSE_FPS = 15
+TEMPORAL_ALIGNMENT_VERSION = 1
+TEMPORAL_MANIFEST_NAME = "temporal_alignment_manifest.json"
 # ====================
+
+
+class CrossModalDurationMismatch(RuntimeError):
+    pass
 
 
 # 从 228 维 BVH 中提取 141 维（47 关节 × 3，去掉 Hips 平移和下肢/末端关节）
@@ -112,33 +122,153 @@ assert len(_BVH_COL_141) == 141, f"Expected 141 cols, got {len(_BVH_COL_141)}"
 _BVH_COL_141 = np.array(_BVH_COL_141, dtype=np.int32)
 
 
-def get_bvh_rotation_lines(bvh_path):
+def _read_bvh_motion(bvh_path):
+    """Read selected BVH rotations and the source sampling rate."""
+    motion = []
+    in_motion = False
+    skipped_header = 0
+    source_frame_time = None
+    with open(bvh_path, "r", errors="replace") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if line == "MOTION":
+                in_motion = True
+                continue
+            if not in_motion:
+                continue
+            if skipped_header < 2:
+                skipped_header += 1
+                if line.lower().startswith("frame time:"):
+                    source_frame_time = float(line.split(":", 1)[1].strip())
+                continue
+            values = np.fromstring(line, dtype=np.float64, sep=" ")
+            if values.size >= 228:
+                motion.append(values[_BVH_COL_141])
+            elif values.size == 141:
+                motion.append(values)
+    if source_frame_time is None or not math.isfinite(source_frame_time) or source_frame_time <= 0:
+        raise RuntimeError(f"Invalid or missing BVH Frame Time in {bvh_path}")
+    if not motion:
+        raise RuntimeError(f"No motion frames in {bvh_path}")
+    source_fps = 1.0 / source_frame_time
+    nearest_integer = round(source_fps)
+    if nearest_integer > 0 and abs(source_fps - nearest_integer) / nearest_integer < 1e-3:
+        source_fps = float(nearest_integer)
+    return np.asarray(motion, dtype=np.float64), source_fps
+
+
+def _target_frame_count(duration_seconds, target_fps):
+    if not math.isfinite(duration_seconds) or duration_seconds <= 0:
+        raise ValueError(f"Invalid duration: {duration_seconds}")
+    return int(math.floor(duration_seconds * target_fps + 1e-6))
+
+
+def _target_times(frame_count, target_fps):
+    return np.arange(frame_count, dtype=np.float64) / float(target_fps)
+
+
+def resample_motion_values(motion, source_fps, target_fps, target_frame_count):
+    times = _target_times(target_frame_count, target_fps)
+    indices = np.rint(times * source_fps).astype(np.int64)
+    if indices[-1] >= motion.shape[0]:
+        raise RuntimeError(
+            "Target BVH time exceeds source: "
+            f"index={indices[-1]}, frames={motion.shape[0]}"
+        )
+    return motion[indices]
+
+
+def resample_bvh_motion(bvh_path, target_fps, target_frame_count):
+    """Decimate BVH rotations on the common target timeline."""
+    motion, source_fps = _read_bvh_motion(bvh_path)
+    source_duration = motion.shape[0] / source_fps
+    return resample_motion_values(motion, source_fps, target_fps, target_frame_count), {
+        "source_fps": source_fps,
+        "source_frames": int(motion.shape[0]),
+        "source_duration_seconds": source_duration,
+    }
+
+
+def read_facial_json(json_path):
+    with open(json_path, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    frames = payload.get("frames", [])
+    if not frames:
+        raise RuntimeError(f"No facial frames in {json_path}")
+    weights = np.asarray([frame.get("weights", []) for frame in frames], dtype=np.float64)
+    if weights.ndim != 2 or weights.shape[1] != 51 or not np.isfinite(weights).all():
+        raise RuntimeError(f"Invalid facial weights in {json_path}: {weights.shape}")
+    times = np.asarray([frame.get("time", np.nan) for frame in frames], dtype=np.float64)
+    if not np.isfinite(times).all() or np.any(np.diff(times) <= 0):
+        raise RuntimeError(f"Facial timestamps must be finite and strictly increasing: {json_path}")
+    steps = np.diff(times)
+    source_step = float(np.median(steps))
+    if source_step <= 0 or not math.isfinite(source_step):
+        raise RuntimeError(f"Invalid facial frame interval in {json_path}")
+    source_fps = 1.0 / source_step
+    nearest_integer = round(source_fps)
+    if nearest_integer > 0 and abs(source_fps - nearest_integer) / nearest_integer < 1e-3:
+        source_fps = float(nearest_integer)
+        source_step = 1.0 / source_fps
+    source_duration = float(times[-1] + source_step)
+    return payload, weights, times, {
+        "source_fps": source_fps,
+        "source_frames": int(weights.shape[0]),
+        "source_duration_seconds": source_duration,
+        "source_first_timestamp": float(times[0]),
+        "source_last_timestamp": float(times[-1]),
+    }
+
+
+def resample_facial_values(payload, weights, source_times, report, target_fps, target_frame_count):
+    times = _target_times(target_frame_count, target_fps)
+    if times[-1] > source_times[-1] + 1.0 / report["source_fps"]:
+        raise RuntimeError("Target facial time exceeds source")
+    aligned = np.empty((target_frame_count, weights.shape[1]), dtype=np.float64)
+    for coefficient in range(weights.shape[1]):
+        aligned[:, coefficient] = np.interp(
+            times,
+            source_times,
+            weights[:, coefficient],
+            left=weights[0, coefficient],
+            right=weights[-1, coefficient],
+        )
+    output = {
+        "names": payload.get("names", []),
+        "frames": [
+            {
+                "weights": frame.tolist(),
+                "time": index / float(target_fps),
+                "rotation": [],
+            }
+            for index, frame in enumerate(aligned)
+        ],
+    }
+    return output
+
+
+def resample_facial_json(json_path, target_fps, target_frame_count):
+    """Linearly resample blendshape coefficients using their real timestamps."""
+    payload, weights, source_times, report = read_facial_json(json_path)
+    output = resample_facial_values(
+        payload, weights, source_times, report, target_fps, target_frame_count
+    )
+    return output, report
+
+
+def get_bvh_rotation_lines(bvh_path, target_fps=TARGET_POSE_FPS, target_frame_count=None):
     """
     从 BVH 文件提取运动数据部分，裁剪到 141 维（去掉 Hips 平移和下肢/末端/无用指根关节）。
     每行输出 141 个浮点数（以空格分隔）。
     """
-    lines_out = []
-    in_motion = False
-    skipped_header = 0
-    with open(bvh_path, "r", errors="replace") as f:
-        for line in f:
-            line = line.strip()
-            if line == "MOTION":
-                in_motion = True
-                continue
-            if in_motion:
-                if skipped_header < 2:
-                    skipped_header += 1
-                    continue
-                vals = line.split()
-                if len(vals) >= 228:
-                    arr = np.array(vals, dtype=np.float32)
-                    out = arr[_BVH_COL_141]
-                    lines_out.append(" ".join(f"{v:.6f}" for v in out))
-                elif len(vals) == 141:
-                    # 已经是 141 维，直接保留
-                    lines_out.append(line)
-    return lines_out
+    motion, source_fps = _read_bvh_motion(bvh_path)
+    if target_frame_count is None:
+        target_frame_count = _target_frame_count(motion.shape[0] / source_fps, target_fps)
+    times = _target_times(target_frame_count, target_fps)
+    indices = np.rint(times * source_fps).astype(np.int64)
+    if indices[-1] >= motion.shape[0]:
+        raise RuntimeError(f"Target timeline exceeds BVH source: {bvh_path}")
+    return [" ".join(f"{value:.6f}" for value in frame) for frame in motion[indices]]
 
 
 
@@ -184,10 +314,19 @@ def split_clips(clips):
     return train, val, test
 
 
-def process_clip(bvh_path, split, out_root):
+def process_clip(
+    bvh_path,
+    split,
+    out_root,
+    *,
+    target_fps=TARGET_POSE_FPS,
+    force=False,
+    fallback_split_root=None,
+    allow_motion_tail_trim=False,
+):
     """
     处理单个 clip，写入 bvh_rot / wave16k / facial52 / sem 目录。
-    返回 True 表示成功，False 表示有文件缺失跳过。
+    返回时间轴审计记录；文件缺失时返回 None。
     """
     stem   = Path(bvh_path).stem    # e.g. 1_wayne_0_1_1
     # out dirs
@@ -200,40 +339,130 @@ def process_clip(bvh_path, split, out_root):
 
     base_dir = str(Path(bvh_path).parent)
 
-    # --- BVH: 提取旋转行 ---
     out_bvh = os.path.join(bvh_dir, stem + ".bvh")
-    if not os.path.exists(out_bvh):
-        rot_lines = get_bvh_rotation_lines(bvh_path)
-        if not rot_lines:
-            print(f"  WARN: no motion lines in {bvh_path}, skip")
-            return False
-        with open(out_bvh, "w") as f:
-            f.write("\n".join(rot_lines) + "\n")
-
-    # --- WAV → NPY ---
     wav_src = os.path.join(base_dir, stem + ".wav")
+    fallback_audio = (
+        os.path.join(fallback_split_root, "wave16k", stem + ".npy")
+        if fallback_split_root else None
+    )
     out_npy = os.path.join(wav_dir, stem + ".npy")
-    if not os.path.exists(wav_src):
-        print(f"  WARN: wav not found {wav_src}, skip")
-        return False
-    if not os.path.exists(out_npy):
-        audio = wav_to_npy(wav_src, TARGET_AUDIO_SR)
-        np.save(out_npy, audio)
 
-    # --- JSON (facial) ---
     json_src = os.path.join(base_dir, stem + ".json")
+    fallback_facial = (
+        os.path.join(fallback_split_root, "facial52", stem + ".json")
+        if fallback_split_root else None
+    )
     out_json = os.path.join(face_dir, stem + ".json")
-    if not os.path.exists(json_src):
-        print(f"  WARN: json not found {json_src}, skip")
-        return False
-    if not os.path.exists(out_json):
-        shutil.copy2(json_src, out_json)
+    facial_source = json_src if os.path.exists(json_src) else fallback_facial
+    if not facial_source or not os.path.exists(facial_source):
+        print(f"  WARN: facial JSON not found for {stem}, skip")
+        return None
+
+    if os.path.exists(wav_src):
+        audio = wav_to_npy(wav_src, TARGET_AUDIO_SR)
+        audio_source = wav_src
+    elif fallback_audio and os.path.exists(fallback_audio):
+        audio = np.load(fallback_audio).astype(np.float32, copy=False)
+        if audio.ndim == 2:
+            audio = audio[:, 0]
+        audio_source = fallback_audio
+    else:
+        print(f"  WARN: audio not found for {stem}, skip")
+        return None
+    if audio.ndim != 1 or not np.isfinite(audio).all():
+        raise RuntimeError(f"Invalid audio source for {stem}: {audio_source}")
+    audio_duration = len(audio) / float(TARGET_AUDIO_SR)
+    motion, motion_fps = _read_bvh_motion(bvh_path)
+    motion_duration = motion.shape[0] / motion_fps
+    facial_payload, facial_weights, facial_times, facial_report = read_facial_json(
+        facial_source
+    )
+    facial_duration = facial_report["source_duration_seconds"]
+    durations = {
+        "audio": audio_duration,
+        "motion": motion_duration,
+        "facial": facial_duration,
+    }
+    duration_delta = max(durations.values()) - min(durations.values())
+    tolerance = 2.0 / target_fps
+    audio_facial_delta = abs(audio_duration - facial_duration)
+    if audio_facial_delta > tolerance:
+        raise CrossModalDurationMismatch(
+            f"Audio/facial duration mismatch in {stem}: {durations}; "
+            f"allowed delta={tolerance:.6f}s"
+        )
+    if duration_delta > tolerance and not allow_motion_tail_trim:
+        raise CrossModalDurationMismatch(
+            f"Cross-modal duration mismatch in {stem}: {durations}; "
+            f"allowed delta={tolerance:.6f}s"
+        )
+
+    aligned_duration = min(durations.values())
+    target_frames = _target_frame_count(aligned_duration, target_fps)
+    if target_frames < 2:
+        raise RuntimeError(f"Aligned clip is too short: {stem}")
+    aligned_motion = resample_motion_values(
+        motion, motion_fps, target_fps, target_frames
+    )
+    aligned_facial = resample_facial_values(
+        facial_payload,
+        facial_weights,
+        facial_times,
+        facial_report,
+        target_fps,
+        target_frames,
+    )
+    if aligned_motion.shape[0] != len(aligned_facial["frames"]):
+        raise RuntimeError(f"Aligned motion/facial frame mismatch in {stem}")
+
+    # All three outputs are derived from the same verified timeline. Existing
+    # files are retained only when rebuilding the manifest for an interrupted
+    # run; --force refreshes them from the raw source.
+    if force or not os.path.exists(out_bvh):
+        with open(out_bvh, "w", encoding="utf-8") as handle:
+            for frame in aligned_motion:
+                handle.write(" ".join(f"{value:.6f}" for value in frame) + "\n")
+    if force or not os.path.exists(out_npy):
+        np.save(out_npy, audio)
+    if force or not os.path.exists(out_json):
+        with open(out_json, "w", encoding="utf-8") as handle:
+            json.dump(aligned_facial, handle, ensure_ascii=False)
 
     # --- TXT (semantic) ---
     txt_src = os.path.join(base_dir, stem + ".txt")
+    fallback_semantic = (
+        os.path.join(fallback_split_root, "sem", stem + ".txt")
+        if fallback_split_root else None
+    )
+    semantic_source = txt_src if os.path.exists(txt_src) else fallback_semantic
     out_txt = os.path.join(sem_dir, stem + ".txt")
-    if os.path.exists(txt_src) and not os.path.exists(out_txt):
-        shutil.copy2(txt_src, out_txt)
+    if semantic_source and os.path.exists(semantic_source) and (force or not os.path.exists(out_txt)):
+        shutil.copy2(semantic_source, out_txt)
+
+    return {
+        "clip": stem,
+        "target_fps": target_fps,
+        "target_frames": target_frames,
+        "aligned_duration_seconds": target_frames / float(target_fps),
+        "source": {
+            "motion_path": str(bvh_path),
+            "facial_path": str(facial_source),
+            "audio_path": str(audio_source),
+            "audio_sample_rate": TARGET_AUDIO_SR,
+            "audio_samples": int(len(audio)),
+            "audio_duration_seconds": audio_duration,
+            "motion_fps": motion_fps,
+            "motion_frames": int(motion.shape[0]),
+            "motion_duration_seconds": motion_duration,
+            "facial_fps": facial_report["source_fps"],
+            "facial_frames": facial_report["source_frames"],
+            "facial_duration_seconds": facial_duration,
+        },
+        "maximum_source_duration_delta_seconds": duration_delta,
+        "source_tail_trim_seconds": {
+            name: duration - aligned_duration for name, duration in durations.items()
+        },
+    }
 
     return True
 
@@ -383,13 +612,76 @@ def copy_stats_to_val_test(train_dir, val_dir, test_dir):
                 print(f"  Copied {rel} → {target_dir}")
 
 
+def write_temporal_manifest(split_dir, split, records, target_fps, skipped=None):
+    skipped = list(skipped or [])
+    trimmed_clip_count = sum(
+        1
+        for record in records
+        if max(record.get("source_tail_trim_seconds", {}).values(), default=0.0) > 1e-6
+    )
+    payload = {
+        "temporal_alignment_version": TEMPORAL_ALIGNMENT_VERSION,
+        "split": split,
+        "target_pose_fps": target_fps,
+        "target_facial_fps": target_fps,
+        "audio_sample_rate": TARGET_AUDIO_SR,
+        "clip_count": len(records),
+        "trimmed_clip_count": trimmed_clip_count,
+        "skipped_clip_count": len(skipped),
+        "skipped_clips": skipped,
+        "clips": records,
+    }
+    canonical = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    payload["manifest_id"] = hashlib.sha256(canonical).hexdigest()
+    path = os.path.join(split_dir, TEMPORAL_MANIFEST_NAME)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, ensure_ascii=False)
+    return path
+
+
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--raw-dir", default=RAW_DIR)
+    parser.add_argument("--output-root", default=OUT_ROOT)
+    parser.add_argument(
+        "--fallback-cache-root",
+        help="Optional legacy cache used only as the source of 16 kHz audio and 60 FPS facial JSON",
+    )
+    parser.add_argument("--target-fps", type=int, default=TARGET_POSE_FPS)
+    parser.add_argument("--speakers", nargs="+", default=SPEAKER_IDS)
+    parser.add_argument(
+        "--split",
+        choices=("all", "train_val", "train", "val", "test"),
+        default="all",
+    )
+    parser.add_argument("--limit", type=int)
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--skip-stats", action="store_true")
+    parser.add_argument(
+        "--duration-mismatch-policy",
+        choices=("error", "skip", "trim_motion_tail"),
+        default="error",
+        help="Reject a corrupt clip or explicitly skip it and record the reason",
+    )
+    parser.add_argument(
+        "--max-skip-fraction",
+        type=float,
+        default=0.01,
+        help="Abort if skipped clips exceed this fraction of a split",
+    )
+    args = parser.parse_args()
+    if args.target_fps <= 0:
+        raise ValueError("--target-fps must be positive")
+
     print("=== BEAT 预处理脚本 ===")
-    print(f"原始数据: {RAW_DIR}")
-    print(f"输出目录: {OUT_ROOT}\n")
+    print(f"原始数据: {args.raw_dir}")
+    print(f"输出目录: {args.output_root}")
+    print(f"统一时间轴: {args.target_fps} FPS\n")
 
     # 1. 收集所有 clip
-    all_clips = collect_clips(SPEAKER_IDS, RAW_DIR)
+    all_clips = collect_clips(args.speakers, args.raw_dir)
     print(f"共找到 {len(all_clips)} 个 clip")
 
     # 2. split
@@ -397,27 +689,84 @@ def main():
     print(f"Train: {len(train_clips)}, Val: {len(val_clips)}, Test: {len(test_clips)}\n")
 
     # 3. 处理各 split
-    for split, clips in [("train", train_clips), ("val", val_clips), ("test", test_clips)]:
+    split_map = {"train": train_clips, "val": val_clips, "test": test_clips}
+    if args.split == "all":
+        selected_splits = list(split_map)
+    elif args.split == "train_val":
+        selected_splits = ["train", "val"]
+    else:
+        selected_splits = [args.split]
+    for split in selected_splits:
+        clips = split_map[split]
+        if args.limit is not None:
+            clips = clips[: max(0, args.limit)]
         print(f"--- 处理 {split} ---")
-        ok = 0
+        records = []
+        skipped = []
         for bf in tqdm(clips, desc=split):
-            if process_clip(bf, split, OUT_ROOT):
-                ok += 1
-        print(f"  成功处理: {ok}/{len(clips)}")
+            try:
+                record = process_clip(
+                    bf,
+                    split,
+                    args.output_root,
+                    target_fps=args.target_fps,
+                    force=args.force,
+                    fallback_split_root=(
+                        os.path.join(args.fallback_cache_root, split)
+                        if args.fallback_cache_root else None
+                    ),
+                    allow_motion_tail_trim=(
+                        args.duration_mismatch_policy == "trim_motion_tail"
+                    ),
+                )
+            except CrossModalDurationMismatch as error:
+                if args.duration_mismatch_policy != "skip":
+                    raise
+                skipped.append({"clip": Path(bf).stem, "reason": str(error)})
+                print(f"  WARN: skip corrupt clip {Path(bf).stem}: {error}")
+                continue
+            if record is not None:
+                records.append(record)
+            else:
+                skipped.append({"clip": Path(bf).stem, "reason": "missing required modality"})
+        skip_fraction = len(skipped) / max(len(clips), 1)
+        if skip_fraction > args.max_skip_fraction:
+            raise RuntimeError(
+                f"Skipped {len(skipped)}/{len(clips)} {split} clips "
+                f"({skip_fraction:.2%}), above --max-skip-fraction={args.max_skip_fraction:.2%}"
+            )
+        manifest_path = write_temporal_manifest(
+            os.path.join(args.output_root, split),
+            split,
+            records,
+            args.target_fps,
+            skipped=skipped,
+        )
+        print(f"  成功处理: {len(records)}/{len(clips)}")
+        if skipped:
+            print(f"  显式跳过: {len(skipped)}")
+        print(f"  时间轴清单: {manifest_path}")
 
     # 4. 计算 train 统计量
-    train_dir = os.path.join(OUT_ROOT, "train")
-    compute_stats(train_dir, train_dir)
+    train_dir = os.path.join(args.output_root, "train")
+    if not args.skip_stats and "train" in selected_splits:
+        compute_stats(train_dir, train_dir)
 
     # 5. 将统计量 copy 到 val / test
-    val_dir  = os.path.join(OUT_ROOT, "val")
-    test_dir = os.path.join(OUT_ROOT, "test")
-    copy_stats_to_val_test(train_dir, val_dir, test_dir)
+    val_dir  = os.path.join(args.output_root, "val")
+    test_dir = os.path.join(args.output_root, "test")
+    if not args.skip_stats and args.split in ("all", "train_val"):
+        copy_stats_to_val_test(train_dir, val_dir, test_dir)
 
     print("\n=== 预处理完成！===")
     print("下一步：提取 HuBERT 特征（见数据准备指南 Step 5）")
     print("然后运行训练：")
-    print("  C:\\Users\\yangz\\miniconda3\\python.exe runner.py --dataset_name beat --name beat_FM_v1 --mode train --flow_matching --fm_sample_steps 50 --n_poses 34 --batch_size 32 --no_fgd --gpu_id 0")
+    print(
+        "  python runner.py --dataset_name beat "
+        f"--beat_cache_name {Path(args.output_root).name} --name beat_FM_v1 "
+        "--mode train --flow_matching --fm_sample_steps 50 --n_poses 34 "
+        "--batch_size 32 --no_fgd --gpu_id 0"
+    )
 
 
 if __name__ == "__main__":

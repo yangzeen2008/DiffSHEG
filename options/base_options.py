@@ -1,8 +1,23 @@
 import argparse
 import os
 import torch
+from datetime import datetime
 from mmcv.runner.dist_utils  import get_dist_info
 import torch.distributed as dist
+
+
+def parse_bool(value):
+    """Parse an explicit CLI boolean without treating every string as True."""
+    if isinstance(value, bool):
+        return value
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "y", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "n", "off"}:
+        return False
+    raise argparse.ArgumentTypeError(
+        f"expected a boolean value, got {value!r}"
+    )
 
 
 class BaseOptions():
@@ -19,7 +34,7 @@ class BaseOptions():
         self.parser.add_argument("--ddim", action="store_true", help='Use ddim sampling')
         self.parser.add_argument("--timestep_respacing", type=str, default='ddim1000', help="Set ddim steps 'ddim{STEP}'")
         self.parser.add_argument("--cond_projection", type=str, default='mlp_includeX', choices=["linear_includeX", "mlp_includeX", "none", "linear_excludeX", "mlp_excludeX"], help="condition projection choices")
-        self.parser.add_argument("--cond_residual", type=bool, default=True, help='Weather to use residual during condition projection')
+        self.parser.add_argument("--cond_residual", type=parse_bool, default=True, help='Weather to use residual during condition projection')
 
 
         self.parser.add_argument("--gpu_id", type=int, default=None, help='GPU id')
@@ -27,18 +42,22 @@ class BaseOptions():
         self.parser.add_argument("--data_parallel", action="store_true", help='Weather to use DP training')
         self.parser.add_argument("--max_eval_samples", type=int, default=-1, help='max_eval_samples')
         self.parser.add_argument("--n_poses", type=int, help='number of poses for a training sequence')
-        self.parser.add_argument("--axis_angle", type=bool, default=True, help='whether use the axis_angle rot representaiton')
+        self.parser.add_argument("--axis_angle", type=parse_bool, default=True, help='whether use the axis_angle rot representaiton')
         self.parser.add_argument("--rename", default=None, help='rename the experiment name during test')
 
         self.parser.add_argument("--debug", action="store_true", help='debug mode, only run one iteration')
-        self.parser.add_argument('--mode', type=str, default='train', choices=["train", "val", "test", "test_arbitrary_len", "test_custom_audio", "eval"], help='train, val, test or eval')
+        self.parser.add_argument('--mode', type=str, default='train', choices=["train", "val", "test", "test_arbitrary_len", "test_custom_audio", "eval", "prepare_cache"], help='train, val, test, eval, or prepare_cache')
 
         self.parser.add_argument('--dataset_name', type=str, default='t2m', help='Dataset Name')
         self.parser.add_argument('--data_mode', type=str, default='original', choices=['original', 'add_init_state'], help='Data modes')
         self.parser.add_argument('--data_type', type=str, default='pos', choices=['pos', 'vel', 'pos_vel'], help='Data types')
         self.parser.add_argument('--data_sel', type=str, default='upperbody', choices=['upperbody', 'all', 'upperbody_head', 'upperbody_hands'], help='Data selection')
         self.parser.add_argument('--data_root', type=str, default='./Freeform/processed_data_200', help='Dataset path')
-        self.parser.add_argument('--beat_cache_name', default='beat_4english_15_141', help='Beat cache name')
+        self.parser.add_argument(
+            '--beat_cache_name',
+            default='beat_4english_15_141_sync_v1',
+            help='BEAT cache name; default uses the verified 120/60 FPS to 15 FPS alignment',
+        )
         self.parser.add_argument('--use_aud_feat', type=str, default=None, choices=["interpolate", "conv"], help='Audio feature path')
         self.parser.add_argument('--audio_feat', type=str, default='mel', choices=["mel", "mfcc", "raw", "hubert", 'wav2vec2'], help='Audio feature type')
         self.parser.add_argument('--test_audio_path', type=str, default=None, help='test audio file or directory path')
@@ -49,7 +68,11 @@ class BaseOptions():
         self.parser.add_argument('--vel_interval', type=int, default=10, help='Interval to compute the velocity')
         self.parser.add_argument('--checkpoints_dir', type=str, default='./checkpoints', help='models are saved here')
         self.parser.add_argument('--overlap_len', type=int, default=0, help='Fix the initial N frames for this clip')
-        self.parser.add_argument('--addBlend', type=bool, default=True, help='Blend in the overlapping region at the last two denoise steps')
+        self.parser.add_argument('--auto_overlap', type=parse_bool, default=True, help='Use n_poses - stride when sequential/long-form inference has overlap_len=0')
+        self.parser.add_argument('--sequential_test_windows', action='store_true', help='Generate ordered cached test/val windows sequentially and reuse the previous motion tail when their raw audio overlaps')
+        self.parser.add_argument('--test_window_ranges', type=str, default=None, help='Bound cached test inference to comma-separated start:count ranges')
+        self.parser.add_argument('--test_result_tag', type=str, default=None, help='Safe suffix for a bounded test result directory')
+        self.parser.add_argument('--addBlend', type=parse_bool, default=True, help='Blend in the overlapping region at the last two denoise steps')
         self.parser.add_argument('--fix_very_first', action='store_true', help='Fix the very first {overlap_len} frames for this video to be the same as GT')
         self.parser.add_argument('--remove_audio', action='store_true', help='set audio to 0')
         self.parser.add_argument('--remove_style', action='store_true', help='set style to 0')
@@ -92,13 +115,13 @@ class BaseOptions():
         self.parser.add_argument('--addTextCond', action="store_true", help='add Text feature to audio feature')
         self.parser.add_argument('--addEmoCond', action="store_true", help='add Emo feature to audio feature')
         self.parser.add_argument('--expAddHubert', action="store_true", help='concat Hubert feature to encoded audio feature only for expression generation')
-        self.parser.add_argument('--addHubert', type=bool, default=True, help='concat Hubert feature to encoded audio feature for both expression and gesture generation')
+        self.parser.add_argument('--addHubert', type=parse_bool, default=True, help='concat Hubert feature to encoded audio feature for both expression and gesture generation')
         self.parser.add_argument('--addWav2Vec2', action="store_true", help='concat Wav2Vec2 feature to encoded audio feature for both expression and gesture generation')
         self.parser.add_argument('--encode_wav2vec2', action="store_true", help='encode the wav2vec2 feature')
-        self.parser.add_argument('--encode_hubert', type=bool, default=True, help='encode the hubert feature')
+        self.parser.add_argument('--encode_hubert', type=parse_bool, default=True, help='encode the hubert feature')
         self.parser.add_argument('--separate', type=str, choices=['v1', 'v2'], default=None, help='limit information exchange between expression and gestures, v1 share encoder, v2 two independent encoders')
         self.parser.add_argument('--usePredExpr', type=str, default=None, help='Path to the predicted expressions.')
-        self.parser.add_argument('--unidiffuser', type=bool, default=True, help='Use the unified framework for joint expression and gesture generation')
+        self.parser.add_argument('--unidiffuser', type=parse_bool, default=True, help='Use the unified framework for joint expression and gesture generation')
 
         self.parser.add_argument('--separate_pure', action="store_true", help='pure two encoders')
 
@@ -119,10 +142,11 @@ class BaseOptions():
         self.parser.add_argument('--output_gt', action="store_true", help='Directly output GT during test')
         self.parser.add_argument('--no_style', action="store_true", help='Do not use style vectors')
         self.parser.add_argument('--no_resample', action="store_true", help='Do not use resample during inpainting based sampling')
-        self.parser.add_argument('--add_vel_loss', type=bool, default=True, help='Add velocity loss')
+        self.parser.add_argument('--add_vel_loss', type=parse_bool, default=True, help='Add velocity loss')
         self.parser.add_argument('--vel_loss_start', type=int, default=-1, help='velocity loss and huber loss start epoch')
         self.parser.add_argument('--vel_loss_weight', type=float, default=100.0, help='Weight for 1st-order velocity loss')
         self.parser.add_argument('--acc_loss_weight', type=float, default=50.0, help='Weight for 2nd-order acceleration loss (0 to disable)')
+        self.parser.add_argument('--jerk_loss_weight', type=float, default=0.0, help='Weight for 3rd-order jerk loss (0 to disable)')
         self.parser.add_argument('--x0_rec_weight', type=float, default=100.0, help='Weight for x0 Huber reconstruction loss')
         self.parser.add_argument('--rot_6d', action='store_true', help='Use 6D rotation representation (282-dim gesture) instead of axis-angle/euler (141-dim)')
         self.parser.add_argument('--ortho_loss_weight', type=float, default=0.01, help='Weight for Gram-Schmidt orthogonalization loss (only active with --rot_6d)')
@@ -130,6 +154,12 @@ class BaseOptions():
         self.parser.add_argument('--hidden_size_override', type=int, default=0, help='Override hidden_size (0=use default 256)')
         self.parser.add_argument('--n_layer_override', type=int, default=0, help='Override n_layer (0=use default 4)')
         self.parser.add_argument('--expr_weight', type=int, default=1, help='expression weight')
+        self.parser.add_argument('--seed', type=int, default=1234, help='Random seed used by Python, NumPy, and PyTorch')
+        self.parser.add_argument('--deterministic', action='store_true', help='Use deterministic cuDNN algorithms (slower, but reproducible)')
+        self.parser.add_argument('--rebuild_motion_cache', action='store_true', help='Rebuild the BEAT motion LMDB; use with --mode prepare_cache')
+        self.parser.add_argument('--adopt_motion_cache', action='store_true', help='Fully audit and version an existing unversioned BEAT motion LMDB')
+        self.parser.add_argument('--cache_splits', type=str, default='train_val', choices=['train', 'val', 'test', 'train_val', 'all'], help='BEAT splits prepared by --mode prepare_cache')
+        self.parser.add_argument('--allow_legacy_motion_cache', action='store_true', help='Allow an unversioned BEAT motion LMDB for diagnostics only')
         
         # inference
         self.parser.add_argument('--jump_n_sample', type=int, default=5, help='hyperparameter for resampling')
@@ -164,6 +194,16 @@ class BaseOptions():
 
         self.opt.is_train = self.is_train
 
+        # A fresh FM run uses clean-expression conditioning.  Resume/eval must
+        # leave "auto" unresolved until the checkpoint metadata is inspected.
+        if (
+            getattr(self.opt, 'flow_matching', False)
+            and self.opt.mode == 'train'
+            and not getattr(self.opt, 'resume', False)
+            and getattr(self.opt, 'fm_expression_condition', None) == 'auto'
+        ):
+            self.opt.fm_expression_condition = 'x0'
+
         args = vars(self.opt)
 
         if self.opt.rank == 0:
@@ -171,17 +211,21 @@ class BaseOptions():
             for k, v in sorted(args.items()):
                 print('%s: %s' % (str(k), str(v)))
             print('-------------- End ----------------')
-            if self.is_train:
-                # save to the disk
+            if self.is_train and self.opt.mode == 'train':
+                # Save immutable run snapshots. Evaluation and inference use
+                # TrainCompOptions too, but must never overwrite training config.
                 expr_dir = os.path.join(self.opt.checkpoints_dir, self.opt.dataset_name, self.opt.name)
                 if not os.path.exists(expr_dir):
                     os.makedirs(expr_dir)
+                lines = ['------------ Options -------------\n']
+                lines.extend('%s: %s\n' % (str(k), str(v)) for k, v in sorted(args.items()))
+                lines.append('-------------- End ----------------\n')
+
+                snapshot_name = 'opt_train_%s.txt' % datetime.now().strftime('%Y%m%d_%H%M%S')
+                with open(os.path.join(expr_dir, snapshot_name), 'wt') as opt_file:
+                    opt_file.writelines(lines)
+
                 file_name = os.path.join(expr_dir, 'opt.txt')
                 with open(file_name, 'wt') as opt_file:
-                    opt_file.write('------------ Options -------------\n')
-                    for k, v in sorted(args.items()):
-                        opt_file.write('%s: %s\n' % (str(k), str(v)))
-                    opt_file.write('-------------- End ----------------\n')
-        if self.opt.world_size > 1:
-            dist.barrier()
+                    opt_file.writelines(lines)
         return self.opt

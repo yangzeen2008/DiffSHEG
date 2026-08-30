@@ -35,10 +35,24 @@ from models.gaussian_diffusion import (
 )
 
 import datasets.rotation_converter as rot_cvt
+from utils.motion_metrics import (
+    linear_pck_mse,
+    normalized_axis_angle,
+    rotation_pck_mse,
+    select_axis_angle_stats,
+)
+from utils.test_selection import safe_result_tag
 from .loss_factory import get_loss_func
 
 import soundfile as sf
 from models.flow_matching import FlowMatching
+from utils.window_stitching import audio_windows_are_consecutive, make_prefix_inpaint
+
+
+def _cuda_synchronize(device):
+    device = torch.device(device)
+    if device.type == 'cuda' and torch.cuda.is_available():
+        torch.cuda.synchronize(device)
 
 class DDPMTrainer_beat(object):
 
@@ -273,15 +287,16 @@ class DDPMTrainer_beat(object):
 
     def backward_G(self):
         # ------ Primary prediction loss (vector field in FM, noise in DDPM) ------
-        if self.opt.expr_weight == 1:
+        expression_mode = self.opt.expression_only or self.opt.gesCondition_expression_only
+        split_pos = min(getattr(self.opt, 'split_pos', self.fake_noise.shape[-1]), self.fake_noise.shape[-1])
+        if self.opt.expr_weight == 1 or expression_mode or split_pos == self.fake_noise.shape[-1]:
             loss_model_pred = self.mse_criterion(self.fake_noise, self.real_noise).mean(dim=-1)
         else:
-            loss_model_pred = self.mse_criterion(self.fake_noise[..., :self.opt.lower_dim],
-                                              self.real_noise[..., :self.opt.lower_dim]).mean(dim=-1) + \
-                            self.mse_criterion(self.fake_noise[..., self.opt.lower_dim:],
-                                              self.real_noise[..., self.opt.lower_dim:]).mean(dim=-1) * \
+            loss_model_pred = self.mse_criterion(self.fake_noise[..., :split_pos],
+                                              self.real_noise[..., :split_pos]).mean(dim=-1) + \
+                            self.mse_criterion(self.fake_noise[..., split_pos:],
+                                              self.real_noise[..., split_pos:]).mean(dim=-1) * \
                             self.opt.expr_weight
-        loss_model_pred = self.mse_criterion(self.fake_noise, self.real_noise).mean(dim=-1)
         loss_model_pred = (loss_model_pred * self.src_mask).sum() / self.src_mask.sum()
         self.loss_model_pred = 1000 * loss_model_pred
         self.final_loss = self.loss_model_pred
@@ -293,24 +308,45 @@ class DDPMTrainer_beat(object):
             if self.opt.add_vel_loss and self.epoch > self.opt.vel_loss_start:
                 vel_weight = getattr(self.opt, 'vel_loss_weight', 100.0)
                 acc_weight = getattr(self.opt, 'acc_loss_weight', 50.0)
+                jerk_weight = getattr(self.opt, 'jerk_loss_weight', 0.0)
                 x0_weight  = getattr(self.opt, 'x0_rec_weight', 100.0)
 
-                # 1) 1st-order velocity loss (motion smoothness)
-                loss_vel_rec = self.mse_criterion(self.fake_vel, self.real_vel).mean(dim=-1)
+                # Gesture rotations live on SO(3), while expression-only
+                # targets are ordinary blendshape scalars.  Keep the two
+                # temporal losses in their physically appropriate spaces.
+                if self.opt.expression_only or self.opt.gesCondition_expression_only:
+                    real_vel, real_acc, real_jerk = self._linear_kinematics(self.real_x0)
+                    fake_vel, fake_acc, fake_jerk = self._linear_kinematics(self.fake_x0)
+                else:
+                    real_vel, real_acc, real_jerk = self._gesture_angular_kinematics(self.real_x0)
+                    fake_vel, fake_acc, fake_jerk = self._gesture_angular_kinematics(self.fake_x0)
+
+                # 1) 1st-order angular velocity loss
+                loss_vel_rec = self._mean_feature_loss(fake_vel, real_vel)
                 loss_vel_rec = (loss_vel_rec * self.src_mask[:, :-1]).sum() / self.src_mask[:, :-1].sum()
                 self.loss_vel_rec = vel_weight * loss_vel_rec
                 loss_logs['loss_vel_rec'] = self.loss_vel_rec.item()
                 self.final_loss += self.loss_vel_rec
 
-                # 2) 2nd-order acceleration loss (jerk suppression)
+                # 2) 2nd-order angular acceleration loss
                 if acc_weight > 0:
-                    loss_acc_rec = self.mse_criterion(self.fake_acc, self.real_acc).mean(dim=-1)
+                    loss_acc_rec = self._mean_feature_loss(fake_acc, real_acc)
                     loss_acc_rec = (loss_acc_rec * self.src_mask[:, :-2]).sum() / self.src_mask[:, :-2].sum()
                     self.loss_acc_rec = acc_weight * loss_acc_rec
                     loss_logs['loss_acc_rec'] = self.loss_acc_rec.item()
                     self.final_loss += self.loss_acc_rec
 
-                # 3) x0 Huber reconstruction loss (smooth action reconstruction)
+                # 3) 3rd-order jerk loss
+                if jerk_weight > 0 and fake_jerk.shape[1] > 0:
+                    loss_jerk_rec = self._mean_feature_loss(fake_jerk, real_jerk)
+                    loss_jerk_rec = (
+                        loss_jerk_rec * self.src_mask[:, :-3]
+                    ).sum() / self.src_mask[:, :-3].sum()
+                    self.loss_jerk_rec = jerk_weight * loss_jerk_rec
+                    loss_logs['loss_jerk_rec'] = self.loss_jerk_rec.item()
+                    self.final_loss += self.loss_jerk_rec
+
+                # 4) x0 Huber reconstruction loss
                 if self.opt.dataset_name == 'beat' and self.opt.sem_rep is not None:
                     loss_x0_rec = self.huber_loss(
                         self.real_x0 * (self.in_sem.unsqueeze(2) + 1),
@@ -371,12 +407,13 @@ class DDPMTrainer_beat(object):
         loss_logs['final_loss'] = self.final_loss.item()
         return loss_logs
 
-    def update(self):
-        self.zero_grad([self.opt_encoder])
+    def update(self, loss_divisor=1, step_optimizer=True):
         loss_logs = self.backward_G()
-        self.final_loss.backward()
-        self.clip_norm([self.encoder])
-        self.step([self.opt_encoder])
+        (self.final_loss / float(loss_divisor)).backward()
+        if step_optimizer:
+            self.clip_norm([self.encoder])
+            self.step([self.opt_encoder])
+            self.zero_grad([self.opt_encoder])
 
         return loss_logs
 
@@ -392,6 +429,12 @@ class DDPMTrainer_beat(object):
         self.encoder.eval()
 
     def save(self, file_name, ep, total_it, fgd, mse, pck, best_fgd, best_mse, best_pck):
+        config = {}
+        for key, value in vars(self.opt).items():
+            if isinstance(value, (str, int, float, bool, type(None), list, tuple, dict)):
+                config[key] = value
+            else:
+                config[key] = str(value)
         state = {
             'opt_encoder': self.opt_encoder.state_dict(),
             'ep': ep,
@@ -401,17 +444,80 @@ class DDPMTrainer_beat(object):
             'MSE': mse,
             'best_mse': best_mse,
             'PCK': pck,
-            'best_pck': best_pck
+            'best_pck': best_pck,
+            'config': config,
         }
         try:
             state['encoder'] = self.encoder.module.state_dict()
         except:
             state['encoder'] = self.encoder.state_dict()
-        torch.save(state, file_name)
+        # Keep the previous checkpoint recoverable until the replacement has
+        # been written completely.  This matters for multi-GB optimizer states.
+        tmp_name = f"{file_name}.tmp-{os.getpid()}"
+        try:
+            torch.save(state, tmp_name)
+            os.replace(tmp_name, file_name)
+        finally:
+            if os.path.exists(tmp_name):
+                os.remove(tmp_name)
         return
 
     def load(self, model_dir):
         checkpoint = torch.load(model_dir, map_location=self.device)
+        saved_config = checkpoint.get('config')
+
+        if (
+            self.opt.mode == 'train'
+            and self.opt.resume
+            and not saved_config
+            and not getattr(self.opt, 'allow_legacy_checkpoint', False)
+        ):
+            raise RuntimeError(
+                "Refusing to resume a legacy checkpoint without saved config. "
+                "Start a fresh experiment, or pass --allow_legacy_checkpoint "
+                "only if legacy behavior is intentional."
+            )
+
+        if self.opt.flow_matching and self.opt.fm_expression_condition == 'auto':
+            saved_condition = (saved_config or {}).get('fm_expression_condition')
+            # Checkpoints predating config snapshots were trained with vector-
+            # field conditioning. New checkpoints record x0 explicitly.
+            self.opt.fm_expression_condition = (
+                saved_condition if saved_condition in ('x0', 'velocity') else 'velocity'
+            )
+            print(f"FM expression conditioning: {self.opt.fm_expression_condition}")
+        elif self.opt.flow_matching and saved_config:
+            saved_condition = saved_config.get('fm_expression_condition')
+            if (
+                self.opt.mode == 'train'
+                and saved_condition in ('x0', 'velocity')
+                and saved_condition != self.opt.fm_expression_condition
+            ):
+                raise RuntimeError(
+                    "Checkpoint FM conditioning mismatch: "
+                    f"checkpoint={saved_condition}, requested={self.opt.fm_expression_condition}"
+                )
+
+        if self.opt.mode == 'train' and saved_config:
+            critical_fields = (
+                'dataset_name', 'n_poses', 'net_dim_pose', 'split_pos',
+                'rot_6d', 'flow_matching', 'unidiffuser', 'motion_cache_ids',
+                'hubert_cache_bindings', 'axis_angle', 'addHubert',
+                'encode_hubert', 'vel_loss_weight', 'acc_loss_weight',
+                'jerk_loss_weight', 'x0_rec_weight',
+            )
+            mismatches = []
+            for field in critical_fields:
+                if field in saved_config and hasattr(self.opt, field):
+                    current = getattr(self.opt, field)
+                    if saved_config[field] != current:
+                        mismatches.append(
+                            f"{field}: checkpoint={saved_config[field]!r}, current={current!r}"
+                        )
+            if mismatches:
+                raise RuntimeError(
+                    "Checkpoint configuration mismatch:\n  " + "\n  ".join(mismatches)
+                )
 
         if self.opt.PE == "pe_sinu_repeat":
             mm = checkpoint['encoder']['PE.pe'][:, :self.n_poses, :]
@@ -419,10 +525,19 @@ class DDPMTrainer_beat(object):
         if self.opt.is_train:
             self.opt_encoder.load_state_dict(checkpoint['opt_encoder'])
         
-        try:
-            self.encoder.module.load_state_dict(checkpoint['encoder'], strict=False)
-        except:
-            self.encoder.load_state_dict(checkpoint['encoder'], strict=False)
+        target_encoder = self.encoder.module if hasattr(self.encoder, 'module') else self.encoder
+        load_result = target_encoder.load_state_dict(checkpoint['encoder'], strict=False)
+        missing_keys = list(load_result.missing_keys)
+        unexpected_keys = list(load_result.unexpected_keys)
+        if missing_keys or unexpected_keys:
+            message = (
+                f"Checkpoint model keys do not match: missing={missing_keys}, "
+                f"unexpected={unexpected_keys}"
+            )
+            if getattr(self.opt, 'allow_partial_checkpoint', False):
+                print("WARNING:", message)
+            else:
+                raise RuntimeError(message)
 
 
         return checkpoint['ep'], checkpoint.get('total_it', 0), \
@@ -445,22 +560,73 @@ class DDPMTrainer_beat(object):
     
 
     def one_hot(self, ids, dim):
-        ones_eye = torch.eye(dim)
-        return (ones_eye[ids.long()].squeeze())
+        flat_ids = ids.long().reshape(-1)
+        return F.one_hot(flat_ids, num_classes=dim).float()
+
+    def _gesture_rotation_matrices(self, motion):
+        if getattr(self.opt, 'rot_6d', False):
+            joint_count = self.opt.split_pos // 6
+            gesture = motion[..., :self.opt.split_pos].reshape(
+                *motion.shape[:-1], joint_count, 6
+            )
+            return rot_cvt.rotation_6d_to_matrix(gesture)
+
+        joint_count = self.opt.split_pos // 3
+        gesture = motion[..., :self.opt.split_pos]
+        mean = self.axis_angle_mean.to(device=gesture.device, dtype=gesture.dtype)
+        std = self.axis_angle_std.to(device=gesture.device, dtype=gesture.dtype)
+        axis_angle = (gesture * std + mean).reshape(
+            *gesture.shape[:-1], joint_count, 3
+        )
+        return rot_cvt.axis_angle_to_matrix(axis_angle)
+
+    def _gesture_angular_kinematics(self, motion):
+        matrices = self._gesture_rotation_matrices(motion)
+        relative = matrices[:, :-1].transpose(-1, -2) @ matrices[:, 1:]
+        velocity = rot_cvt.matrix_to_axis_angle(relative)
+        acceleration = velocity[:, 1:] - velocity[:, :-1]
+        jerk = acceleration[:, 1:] - acceleration[:, :-1]
+        return velocity, acceleration, jerk
+
+    @staticmethod
+    def _linear_kinematics(motion):
+        velocity = motion[:, 1:] - motion[:, :-1]
+        acceleration = velocity[:, 1:] - velocity[:, :-1]
+        jerk = acceleration[:, 1:] - acceleration[:, :-1]
+        return velocity, acceleration, jerk
+
+    def _mean_feature_loss(self, prediction, target):
+        """Return one loss value per batch item and frame."""
+        elementwise = self.mse_criterion(prediction, target)
+        return elementwise.flatten(start_dim=2).mean(dim=-1)
     
 
     def train(self, train_dataset, val_dataset):
         rank, world_size = get_dist_info()
         self.to(self.device)
         self.opt_encoder = optim.Adam(self.encoder.parameters(), lr=self.opt.lr)
+        axis_mean, axis_std = select_axis_angle_stats(
+            train_dataset.mean_pose_axis_angle,
+            train_dataset.std_pose_axis_angle,
+            self.opt.split_pos if not getattr(self.opt, 'rot_6d', False) else self.opt.split_pos // 2,
+        )
+        self.axis_angle_mean = torch.as_tensor(
+            axis_mean, device=self.device, dtype=torch.float32
+        )
+        self.axis_angle_std = torch.as_tensor(
+            np.maximum(axis_std, 1e-2),
+            device=self.device,
+            dtype=torch.float32,
+        )
         it = 0
         cur_epoch = 0
         best_fgd = 99999
         best_mse = 99999
         best_pck = 0
         if self.opt.resume:
-            model_dir = pjoin(self.opt.model_dir, 'latest.tar')
-            cur_epoch, it, best_fgd, best_mse, best_pck = self.load(model_dir)
+            model_dir = pjoin(self.opt.model_dir, self.opt.ckpt)
+            saved_epoch, it, best_fgd, best_mse, best_pck = self.load(model_dir)
+            cur_epoch = saved_epoch + 1
             if self.opt.reset_lr:
                 for i, param_group in enumerate(self.opt_encoder.param_groups):
                     param_group['lr'] = self.opt.lr
@@ -474,13 +640,38 @@ class DDPMTrainer_beat(object):
             train_sampler = None
             val_sampler = None
 
+        loader_workers = max(0, int(self.opt.workers))
+        loader_kwargs = {
+            'num_workers': loader_workers,
+            'pin_memory': True,
+        }
+        if loader_workers > 0:
+            loader_kwargs.update(
+                persistent_workers=bool(getattr(self.opt, 'persistent_workers', False)),
+                prefetch_factor=max(1, int(getattr(self.opt, 'prefetch_factor', 2))),
+            )
+
         train_loader = torch.utils.data.DataLoader(
             train_dataset, batch_size=self.opt.batch_size, shuffle=(train_sampler is None),
-            num_workers=self.opt.workers, pin_memory=True, sampler=train_sampler)
+            sampler=train_sampler, **loader_kwargs)
 
+        # Validation only runs periodically. Keeping another full worker pool
+        # resident after its first pass wastes RAM and file descriptors.
+        val_loader_kwargs = dict(loader_kwargs)
+        if loader_workers > 0:
+            val_loader_kwargs['persistent_workers'] = False
         val_loader = torch.utils.data.DataLoader(
             val_dataset, batch_size=self.opt.batch_size, shuffle=False,
-            num_workers=self.opt.workers, pin_memory=True, sampler=val_sampler)
+            sampler=val_sampler, **val_loader_kwargs)
+        non_blocking_transfer = bool(
+            getattr(self.opt, 'non_blocking_transfer', True)
+        )
+
+        def move_to_device(tensor):
+            return tensor.to(
+                self.device,
+                non_blocking=non_blocking_transfer,
+            )
         
         ##################################### Training #####################################
         print("Start training ...")
@@ -492,6 +683,8 @@ class DDPMTrainer_beat(object):
             if self.opt.distributed:
                 train_sampler.set_epoch(epoch)
 
+            accumulation_steps = max(1, int(getattr(self.opt, 'grad_accum_steps', 1)))
+            self.zero_grad([self.opt_encoder])
             for i, batch_data in enumerate(train_loader):
                 # tt1 = time.time()
                 if not self.opt.expression_only:
@@ -503,15 +696,15 @@ class DDPMTrainer_beat(object):
                         tar_pose = batch_data["pose"] # torch.Size([B, 34, 141])
                     if self.opt.remove_hand and not getattr(self.opt, 'rot_6d', False):
                         tar_pose = tar_pose[..., [pp for pp in range(0,21)] + [pp for pp in range(75,87)]]
-                    tar_pose = tar_pose.to(self.device)
+                    tar_pose = move_to_device(tar_pose)
                 if not self.opt.gesture_only:
-                    in_facial = batch_data["facial"].to(self.device) if self.opt.facial_rep is not None else None  # torch.Size([B, 34, 51])
+                    in_facial = move_to_device(batch_data["facial"]) if self.opt.facial_rep is not None else None  # torch.Size([B, 34, 51])
                 
-                self.in_sem = batch_data["sem"].to(self.device) if self.opt.sem_rep is not None else None # torch.Size([B, 34])
+                self.in_sem = move_to_device(batch_data["sem"]) if self.opt.sem_rep is not None else None # torch.Size([B, 34])
 
                 if self.opt.textExpEmoCondition_gesture_only:
-                    in_word = batch_data["word"].to(self.device) if self.opt.word_rep is not None else None # torch.Size([B, 34])
-                    in_emo = batch_data["emo"].to(self.device) if self.opt.emo_rep is not None else None # torch.Size([B, 34])
+                    in_word = move_to_device(batch_data["word"]) if self.opt.word_rep is not None else None # torch.Size([B, 34])
+                    in_emo = move_to_device(batch_data["emo"]) if self.opt.emo_rep is not None else None # torch.Size([B, 34])
                     in_facial = torch.cat([in_facial, in_word.unsqueeze(-1), in_emo.unsqueeze(-1)], dim=-1)
 
                 if self.opt.expression_only or self.opt.gesCondition_expression_only:
@@ -522,7 +715,7 @@ class DDPMTrainer_beat(object):
                 else:
                     motions = torch.cat((tar_pose, in_facial), dim=-1)
 
-                audio_emb = batch_data["aud_feat"].to(self.device) if self.opt.audio_rep is not None else None # 
+                audio_emb = move_to_device(batch_data["aud_feat"]) if self.opt.audio_rep is not None else None
 
                 if self.opt.expCondition_gesture_only:
                     audio_emb = torch.cat((audio_emb, in_facial), dim=-1)
@@ -532,18 +725,18 @@ class DDPMTrainer_beat(object):
                 add_cond = {}
 
                 if self.opt.addTextCond:
-                    in_word = batch_data["word"].to(self.device) if self.opt.word_rep is not None else None # torch.Size([B, 34])
+                    in_word = move_to_device(batch_data["word"]) if self.opt.word_rep is not None else None # torch.Size([B, 34])
                     add_cond['text'] = in_word
                 if self.opt.addEmoCond:
-                    in_emo = batch_data["emo"].to(self.device) if self.opt.emo_rep is not None else None # torch.Size([B, 34])
+                    in_emo = move_to_device(batch_data["emo"]) if self.opt.emo_rep is not None else None # torch.Size([B, 34])
                     add_cond['emo'] = in_emo
                 if self.opt.expAddHubert or self.opt.addHubert:
-                    add_cond["pretrain_aud_feat"] = batch_data["pretrain_aud_feat"].to(self.device)
+                    add_cond["pretrain_aud_feat"] = move_to_device(batch_data["pretrain_aud_feat"])
                 
 
 
                 p_id = batch_data["id"] if self.opt.speaker_id else None # torch.Size([256, 1])
-                p_id = self.one_hot(p_id, self.opt.speaker_dim).to(self.device)
+                p_id = move_to_device(self.one_hot(p_id, self.opt.speaker_dim))
 
                 if self.opt.remove_audio:
                     audio_emb = torch.zeros_like(audio_emb).to(audio_emb.device)
@@ -563,7 +756,13 @@ class DDPMTrainer_beat(object):
                                                     device=motions.device)  # Do inpainting/generation in those frames
                     inpaint_dict['outpainting_mask'][..., :self.opt.overlap_len, :] = True  # True means use gt motion 
                 self.forward(batch_data, add_cond=add_cond, inpaint_dict=inpaint_dict)
-                log_dict = self.update()
+                group_start = (i // accumulation_steps) * accumulation_steps
+                group_size = min(accumulation_steps, len(train_loader) - group_start)
+                should_step = (i - group_start + 1) == group_size
+                log_dict = self.update(
+                    loss_divisor=group_size,
+                    step_optimizer=should_step,
+                )
                 for k, v in log_dict.items():
                     if k not in logs:
                         logs[k] = v
@@ -585,7 +784,12 @@ class DDPMTrainer_beat(object):
                 if self.opt.debug:
                     break
 
-            if rank == 0:
+            latest_every_e = max(1, int(getattr(self.opt, 'latest_every_e', 1)))
+            should_save_latest = (
+                (epoch + 1) % latest_every_e == 0
+                or (epoch + 1) == self.opt.num_epochs
+            )
+            if rank == 0 and should_save_latest:
                 self.save(pjoin(self.opt.model_dir, 'latest.tar'), epoch, it, None, None, None, best_fgd, best_mse, best_pck)
 
             if (epoch+1) % self.opt.save_every_e == 0 and rank == 0:
@@ -616,18 +820,18 @@ class DDPMTrainer_beat(object):
                                 tar_pose = batch_data["pose_6d"]  # [B, T, 282]
                             elif self.opt.axis_angle:
                                 tar_pose = batch_data["pose_axis_angle"]
-                                tar_pose_euler = batch_data["pose"].to(self.device)
+                                tar_pose_euler = move_to_device(batch_data["pose"])
                             else:
                                 tar_pose = batch_data["pose"] # torch.Size([256, 34, 141])
                             if self.opt.remove_hand and not getattr(self.opt, 'rot_6d', False):
                                 tar_pose = tar_pose[..., [pp for pp in range(0,21)] + [pp for pp in range(75,87)]]
-                            tar_pose = tar_pose.to(self.device)
+                            tar_pose = move_to_device(tar_pose)
                         if not self.opt.gesture_only:
-                            in_facial = batch_data["facial"].to(self.device) if self.opt.facial_rep is not None else None  # torch.Size([256, 34, 51])
+                            in_facial = move_to_device(batch_data["facial"]) if self.opt.facial_rep is not None else None  # torch.Size([256, 34, 51])
                         
                         if self.opt.textExpEmoCondition_gesture_only:
-                            in_word = batch_data["word"].to(self.device) if self.opt.word_rep is not None else None # torch.Size([256, 34])
-                            in_emo = batch_data["emo"].to(self.device) if self.opt.emo_rep is not None else None # torch.Size([256, 34])
+                            in_word = move_to_device(batch_data["word"]) if self.opt.word_rep is not None else None # torch.Size([256, 34])
+                            in_emo = move_to_device(batch_data["emo"]) if self.opt.emo_rep is not None else None # torch.Size([256, 34])
                             in_facial = torch.cat([in_facial, in_word.unsqueeze(-1), in_emo.unsqueeze(-1)], dim=-1)
                         
 
@@ -638,7 +842,7 @@ class DDPMTrainer_beat(object):
                         else:
                             motions = torch.cat((tar_pose, in_facial), dim=-1)
 
-                        audio_emb = batch_data["aud_feat"].to(self.device) if self.opt.audio_rep is not None else None
+                        audio_emb = move_to_device(batch_data["aud_feat"]) if self.opt.audio_rep is not None else None
 
                         if self.opt.expCondition_gesture_only:
                             audio_emb = torch.cat((audio_emb, in_facial), dim=-1)
@@ -647,16 +851,16 @@ class DDPMTrainer_beat(object):
                         
                         add_cond = {}
                         if self.opt.addTextCond:
-                            in_word = batch_data["word"].to(self.device) if self.opt.word_rep is not None else None # torch.Size([B, 34])
+                            in_word = move_to_device(batch_data["word"]) if self.opt.word_rep is not None else None # torch.Size([B, 34])
                             add_cond['text'] = in_word
                         if self.opt.addEmoCond:
-                            in_emo = batch_data["emo"].to(self.device) if self.opt.emo_rep is not None else None # torch.Size([B, 34])
+                            in_emo = move_to_device(batch_data["emo"]) if self.opt.emo_rep is not None else None # torch.Size([B, 34])
                             add_cond['emo'] = in_emo
                         if self.opt.expAddHubert or self.opt.addHubert:
-                            add_cond["pretrain_aud_feat"] = batch_data["pretrain_aud_feat"].to(self.device)
+                            add_cond["pretrain_aud_feat"] = move_to_device(batch_data["pretrain_aud_feat"])
 
                         p_id = batch_data["id"] if self.opt.speaker_id else None # torch.Size([256, 1])
-                        p_id = self.one_hot(p_id, self.opt.speaker_dim).to(self.device)
+                        p_id = move_to_device(self.one_hot(p_id, self.opt.speaker_dim))
 
                         if self.opt.remove_audio:
                             audio_emb = torch.zeros_like(audio_emb).to(audio_emb.device)
@@ -678,41 +882,36 @@ class DDPMTrainer_beat(object):
                         p_id = p_id.detach().float()
                         count += len(motions)
 
-                        inpaint_dict = {}
-                        if self.opt.overlap_len > 0:
-                            inpaint_dict['gt'] = motions
-                            inpaint_dict['outpainting_mask'] = torch.zeros_like(motions, dtype=torch.bool,
-                                                            device=motions.device)  # Do inpainting/generation in those frames
-                            inpaint_dict['outpainting_mask'][..., :self.opt.overlap_len, :] = True  # True means use gt motion 
-
-                        outputs = self.generate_batch(audio_emb, p_id, self.opt.net_dim_pose, add_cond, inpaint_dict)
+                        # Independent validation clips must not leak GT prefix
+                        # frames into the generated sample or its metrics.
+                        outputs = self.generate_batch(
+                            audio_emb, p_id, self.opt.net_dim_pose, add_cond, {}
+                        )
                         B, seq, C = outputs.shape
 
-                        # 6D → convert to euler for FGD eval (eval_model expects 141-dim euler)
-                        if getattr(self.opt, 'rot_6d', False) and not self.opt.no_fgd:
-                            n_j = self.opt.split_pos // 6  # 47 joints
-                            out_ges_6d = outputs[..., :self.opt.split_pos]
-                            mat = rot_cvt.rotation_6d_to_matrix(out_ges_6d.reshape(B*seq, n_j, 6))
-                            aa = rot_cvt.matrix_to_axis_angle(mat).reshape(B, seq, n_j*3)
-                            euler = rot_cvt.axis_angle_to_euler_angles(aa.reshape(B, seq, n_j, 3)).reshape(B, seq, n_j*3)
-                            euler_deg = euler * (180 / np.pi)
-                            outputs_for_eval = euler_deg.float()
-                            # Also convert GT motions for eval
-                            gt_ges_6d = motions[..., :self.opt.split_pos]
-                            mat_gt = rot_cvt.rotation_6d_to_matrix(gt_ges_6d.reshape(B*seq, n_j, 6))
-                            aa_gt = rot_cvt.matrix_to_axis_angle(mat_gt).reshape(B, seq, n_j*3)
-                            euler_gt = rot_cvt.axis_angle_to_euler_angles(aa_gt.reshape(B, seq, n_j, 3)).reshape(B, seq, n_j*3)
-                            euler_deg_gt = euler_gt * (180 / np.pi)
-                            motions_for_eval = euler_deg_gt.float()
-                        else:
+                        expression_mode = self.opt.expression_only or self.opt.gesCondition_expression_only
+                        if expression_mode:
                             outputs_for_eval = outputs
                             motions_for_eval = motions
+                            pck_val, mse_val, metric_errors = linear_pck_mse(
+                                outputs, motions, threshold=0.5
+                            )
+                        else:
+                            metric_kwargs = dict(
+                                rot_6d=bool(getattr(self.opt, 'rot_6d', False)),
+                                split_pos=self.opt.split_pos,
+                                mean_axis_angle=val_dataset.mean_pose_axis_angle,
+                                std_axis_angle=val_dataset.std_pose_axis_angle,
+                            )
+                            outputs_for_eval = normalized_axis_angle(outputs, **metric_kwargs)
+                            motions_for_eval = normalized_axis_angle(motions, **metric_kwargs)
+                            pck_val, mse_val, metric_errors = rotation_pck_mse(
+                                outputs, motions, threshold=0.5, **metric_kwargs
+                            )
 
                         if not self.opt.no_fgd:
-                            # Slice to gesture dims only (split_pos=141) for FGD eval
-                            sp = getattr(self.opt, 'split_pos', outputs_for_eval.shape[-1])
-                            latent_out = self.eval_model(outputs_for_eval[:, :34, :sp].float())
-                            latent_ori = self.eval_model(motions_for_eval[:, :34, :sp].float())
+                            latent_out = self.eval_model(outputs_for_eval[:, :34].float())
+                            latent_ori = self.eval_model(motions_for_eval[:, :34].float())
                             #print(latent_out,latent_ori)
                             if i == 0:
                                 latent_out_all = latent_out.cpu().numpy()
@@ -723,33 +922,9 @@ class DDPMTrainer_beat(object):
 
                         
 
-                        ## to cpu
+                        correct = (metric_errors < 0.5).cpu().numpy()
+                        outputs_np = outputs_for_eval.cpu().numpy()
                         outputs, motions = outputs.cpu(), motions.cpu()
-                        
-                        if getattr(self.opt, 'rot_6d', False):
-                            # For MSE/PCK: convert to euler space for fair comparison
-                            n_j = self.opt.split_pos // 6
-                            out_ges = outputs[..., :self.opt.split_pos]
-                            mat_o = rot_cvt.rotation_6d_to_matrix(out_ges.reshape(B*seq, n_j, 6))
-                            aa_o = rot_cvt.matrix_to_axis_angle(mat_o).reshape(B, seq, n_j, 3)
-                            outputs_np = aa_o.numpy()
-                            gt_ges = motions[..., :self.opt.split_pos]
-                            mat_g = rot_cvt.rotation_6d_to_matrix(gt_ges.reshape(B*seq, n_j, 6))
-                            aa_g = rot_cvt.matrix_to_axis_angle(mat_g).reshape(B, seq, n_j, 3)
-                            motions_np = aa_g.numpy()
-                        else:
-                            motions_np = motions.reshape(B, seq, C//3, 3).numpy()
-                            outputs_np = outputs.reshape(B, seq, C//3, 3).numpy()
-
-
-                        ### MSE & PCK & SRGR
-                        
-                        diff = outputs_np - motions_np
-                        diff_square = diff ** 2
-                        correct = np.sum(diff_square, axis=3)  # [B, T, J]
-                        correct = np.sqrt(correct) < 0.5       # bool [B, T, J]
-                        pck_val = np.mean(correct)
-                        mse_val = np.mean(diff_square)
                         
                         # SRGR: semantic-weighted PCK (BEAT paper, Liu et al. 2022)
                         # sem: [B, T] with values 0-1 (0.1=beat gesture, 0.2-1.0=semantic)
@@ -768,16 +943,16 @@ class DDPMTrainer_beat(object):
                         if B < B_div:
                             B_div = B
                         # out_split = outputs.split(B_div, dim=0)
-                        out_split = np.split(outputs_np, np.arange(B_div, B, B_div), axis=0)
-                        for idx in range(B // B_div):
-                            div_val = 0.0
-                            for ii in range(0, B_div):
-                                for jj in range(ii+1, B_div):
-                                    dif = out_split[idx][ii,:,:,:] - out_split[idx][jj,:,:,:]
-                                    div_val += np.mean(np.absolute(dif)) ### TODO: check: np.mean() or np.sum()
-                            div_val = div_val * 2 / (B_div * (B_div - 1)) 
-                            # update in averagemeter
-                            diversity.update(div_val, B_div)
+                        if B_div >= 2:
+                            out_split = np.split(outputs_np, np.arange(B_div, B, B_div), axis=0)
+                            for idx in range(B // B_div):
+                                div_val = 0.0
+                                for ii in range(0, B_div):
+                                    for jj in range(ii+1, B_div):
+                                        dif = out_split[idx][ii] - out_split[idx][jj]
+                                        div_val += np.mean(np.absolute(dif)) ### TODO: check: np.mean() or np.sum()
+                                div_val = div_val * 2 / (B_div * (B_div - 1))
+                                diversity.update(div_val, B_div)
 
                         
                         # update in averagemeter
@@ -878,6 +1053,11 @@ class DDPMTrainer_beat(object):
             results_dir = results_dir.replace(middle_name, middle_name + "_usePredExpr")
         if self.opt.output_gt:
             results_dir = results_dir.replace(middle_name, middle_name + "_GT")
+        if getattr(self.opt, 'sequential_test_windows', False):
+            results_dir = results_dir + f"_sequential_overlap{self.opt.overlap_len}"
+        result_tag = safe_result_tag(getattr(self.opt, 'test_result_tag', None))
+        if result_tag:
+            results_dir = results_dir + f"_{result_tag}"
 
         
         if not os.path.exists(results_dir):
@@ -905,6 +1085,9 @@ class DDPMTrainer_beat(object):
 
 
         count = 0
+        previous_sequential_output = None
+        previous_sequential_audio = None
+        previous_sequential_person = None
         for i, batch_data in enumerate(test_loader):
             if not self.opt.expression_only:
                 if getattr(self.opt, 'rot_6d', False):
@@ -963,15 +1146,57 @@ class DDPMTrainer_beat(object):
                     p_id[:, :1] = 1
                 ###### debug end
 
-                inpaint_dict = {}
-                if self.opt.overlap_len > 0:
-                    inpaint_dict['gt'] = motions
-                    inpaint_dict['outpainting_mask'] = torch.zeros_like(motions, dtype=torch.bool,
-                                                    device=motions.device)  # Do inpainting/generation in those frames
-                    inpaint_dict['outpainting_mask'][..., :self.opt.overlap_len, :] = True  # True means use gt motion 
+                # A standalone test clip must be generated without copying a
+                # ground-truth prefix into the result.
+                if getattr(self.opt, 'sequential_test_windows', False):
+                    sequential_outputs = []
+                    for sample_index in range(audio_emb.shape[0]):
+                        sample_audio_emb = audio_emb[sample_index:sample_index + 1]
+                        sample_motion = motions[sample_index:sample_index + 1]
+                        sample_person = p_id[sample_index:sample_index + 1]
+                        sample_audio_raw = audio_raw[sample_index:sample_index + 1]
+                        sample_add_cond = {
+                            key: value[sample_index:sample_index + 1]
+                            for key, value in add_cond.items()
+                        }
 
-                
-                outputs = self.generate_batch(audio_emb, p_id, self.opt.net_dim_pose, add_cond, inpaint_dict)
+                        same_person = (
+                            previous_sequential_person is not None
+                            and torch.equal(
+                                previous_sequential_person.detach().cpu(),
+                                sample_person.detach().cpu(),
+                            )
+                        )
+                        consecutive_audio = audio_windows_are_consecutive(
+                            previous_sequential_audio,
+                            sample_audio_raw,
+                            pose_stride=self.opt.stride,
+                            pose_fps=self.opt.pose_fps,
+                            audio_fps=16000,
+                        )
+                        chain_window = same_person and consecutive_audio
+                        inpaint_dict = make_prefix_inpaint(
+                            sample_motion,
+                            previous_sequential_output if chain_window else None,
+                            self.opt.overlap_len,
+                        )
+                        sample_output = self.generate_batch(
+                            sample_audio_emb,
+                            sample_person,
+                            self.opt.net_dim_pose,
+                            sample_add_cond,
+                            inpaint_dict,
+                        )
+                        sequential_outputs.append(sample_output)
+                        previous_sequential_output = sample_output.detach()
+                        previous_sequential_audio = sample_audio_raw.detach()
+                        previous_sequential_person = sample_person.detach()
+
+                    outputs = torch.cat(sequential_outputs, dim=0)
+                else:
+                    outputs = self.generate_batch(
+                        audio_emb, p_id, self.opt.net_dim_pose, add_cond, {}
+                    )
                 
                 outputs = outputs.cpu().numpy()
 
@@ -1018,17 +1243,17 @@ class DDPMTrainer_beat(object):
                     if self.opt.expression_only:
                         self.write_face_json(out, pjoin(json_dir, "%05d" % count + f"_rank{rank}.json"))
                     if self.opt.unidiffuser or self.opt.net_dim_pose == 192:
-                        np.save(pjoin(results_dir_expr,  "%05d" % count + f"_rank{rank}.npy"), out_expression)
+                        np.save(pjoin(results_dir_expr,  "%05d" % count + f"_rank{rank}.npy"), out_expression[idx])
                         sf.write(pjoin(results_dir_aud,  "%05d" % count + f"_rank{rank}.wav"), audio_raw[idx].cpu().numpy(), 16000)
-                        self.write_face_json(out_expression, pjoin(json_dir, "%05d" % count + f"_rank{rank}.json"))
+                        self.write_face_json(out_expression[idx], pjoin(json_dir, "%05d" % count + f"_rank{rank}.json"))
                 else:
                     np.save(pjoin(results_dir, "%05d.npy" % count), out)
                     if self.opt.expression_only:
                         self.write_face_json(out, pjoin(json_dir, "%05d.json" % count))
                     if self.opt.unidiffuser or self.opt.net_dim_pose == 192:
-                        np.save(pjoin(results_dir_expr, "%05d.npy" % count), out_expression)
+                        np.save(pjoin(results_dir_expr, "%05d.npy" % count), out_expression[idx])
                         sf.write(pjoin(results_dir_aud,  "%05d.wav" % count), audio_raw[idx].cpu().numpy(), 16000)
-                        self.write_face_json(out_expression, pjoin(json_dir, "%05d" % count + f"_rank{rank}.json"))
+                        self.write_face_json(out_expression[idx], pjoin(json_dir, "%05d" % count + f"_rank{rank}.json"))
                         
 
                 count += 1
@@ -1211,11 +1436,11 @@ class DDPMTrainer_beat(object):
                         elif ii > 0:
                             inpaint_dict['outpainting_mask'][..., :self.opt.overlap_len, :] = True  # True means use gt motion 
                             inpaint_dict['gt'][:, :self.opt.overlap_len, ...] = outputs[:, -self.opt.overlap_len:, ...]
-                            if self.opt.same_overlap_noisy:
+                            if self.opt.same_overlap_noisy and not self.opt.flow_matching:
                                 inpaint_dict['previous_noisy_tail'] = previous_noisy_tail
                     
                     outputs = self.generate_batch(audio_emb, p_id, self.opt.net_dim_pose, add_cond, inpaint_dict)
-                    if self.opt.same_overlap_noisy:
+                    if self.opt.same_overlap_noisy and not self.opt.flow_matching:
                         previous_noisy_tail = outputs["saved_noisy_tail"]
                         outputs = outputs["sample"]
 
@@ -1322,11 +1547,8 @@ class DDPMTrainer_beat(object):
         cur_epoch, it, _, _, _ = self.load(model_dir)
 
         if self.opt.expAddHubert or self.opt.addHubert:
-            from transformers import Wav2Vec2Processor, HubertModel
-            print("Loading the Wav2Vec2 Processor...")
-            wav2vec2_processor = Wav2Vec2Processor.from_pretrained("facebook/hubert-large-ls960-ft")
-            print("Loading the HuBERT Model...")
-            hubert_model = HubertModel.from_pretrained("facebook/hubert-large-ls960-ft")
+            from utils.hubert import load_hubert_components
+            wav2vec2_processor, hubert_model = load_hubert_components(device=self.device)
 
         if os.path.isdir(test_audio_path):
             aud_list = os.listdir(test_audio_path)
@@ -1422,21 +1644,25 @@ class DDPMTrainer_beat(object):
             sr = 16000
             
             for i, name in enumerate(aud_list):
-                time_sum = .0
+                preprocessing_time = 0.0
+                generation_time = 0.0
                 aud_path = os.path.join(test_audio_path, name)
-                if name.endswith(".wav"):
-                    aud_ori, sr = librosa.load(aud_path)
+                if name.endswith((".wav", ".mp3")):
+                    # HuBERT expects real 16 kHz samples. librosa.load() would
+                    # otherwise silently resample to its 22.05 kHz default.
+                    aud_ori, sr = librosa.load(aud_path, sr=16000, mono=True)
                 elif name.endswith(".npy"):
                     aud_ori = np.load(aud_path)
+                    sr = 16000
                 
                 aud = librosa.resample(aud_ori, orig_sr=sr, target_sr=18000)
 
 
-                time_start = time.time()
+                time_start = time.perf_counter()
                 mel = librosa.feature.melspectrogram(y=aud, sr=18000, hop_length=1200, n_mels=128)
 
-                time_1 = time.time()
-                time_sum += time_1 - time_start
+                time_1 = time.perf_counter()
+                preprocessing_time += time_1 - time_start
 
                 mel = mel[..., :-1]
                 audio_emb = torch.from_numpy(np.swapaxes(mel, -1, -2))
@@ -1452,11 +1678,13 @@ class DDPMTrainer_beat(object):
 
                 add_cond = {}
                 if self.opt.expAddHubert or self.opt.addHubert:
-                    time_2 = time.time()
+                    _cuda_synchronize(self.device)
+                    time_2 = time.perf_counter()
                     add_cond["pretrain_aud_feat"] = get_hubert_from_16k_speech_long(hubert_model, wav2vec2_processor, torch.from_numpy(aud_ori).unsqueeze(0).to(self.device), device=self.device)
                     add_cond["pretrain_aud_feat"] = F.interpolate(add_cond["pretrain_aud_feat"].swapaxes(-1,-2).unsqueeze(0), size=audio_emb.shape[-2], mode='linear', align_corners=True).swapaxes(-1,-2)
-                    time_3 = time.time()
-                    time_sum += time_3 - time_2
+                    _cuda_synchronize(self.device)
+                    time_3 = time.perf_counter()
+                    preprocessing_time += time_3 - time_2
                 # Put dict values into self.deivce
                 if isinstance(add_cond, dict):
                     for key in add_cond.keys():
@@ -1489,10 +1717,12 @@ class DDPMTrainer_beat(object):
                             inpaint_dict['gt'][:, :self.opt.overlap_len, ...] = outputs[:, -self.opt.overlap_len:, ...]
 
                     
-                    time_4 = time.time()
+                    _cuda_synchronize(self.device)
+                    time_4 = time.perf_counter()
                     outputs = self.generate_batch(audio_emb, p_id, self.opt.net_dim_pose, add_cond, inpaint_dict)
-                    time_end = time.time()
-                    time_sum += time_end - time_4
+                    _cuda_synchronize(self.device)
+                    time_end = time.perf_counter()
+                    generation_time += time_end - time_4
 
                     outputs_np = outputs.cpu().numpy()
                     if ii == len(motions_list) - 1:
@@ -1504,7 +1734,20 @@ class DDPMTrainer_beat(object):
                         break
 
                 out_motions = np.concatenate(out_motions, 1)
-                print(f"Time cost: {time_sum}; Frames: {out_motions.shape[1]}; FPS: {out_motions.shape[1] / time_sum}")
+                total_time = preprocessing_time + generation_time
+                frame_count = out_motions.shape[1]
+                print(
+                    f"End-to-end time: {total_time:.3f}s; frames: {frame_count}; "
+                    f"FPS: {frame_count / max(total_time, 1e-9):.2f}"
+                )
+                print(
+                    f"Generation time: {generation_time:.3f}s; "
+                    f"sampling FPS: {frame_count / max(generation_time, 1e-9):.2f}; "
+                    f"audio preprocessing: {preprocessing_time:.3f}s"
+                )
+                if self.opt.flow_matching:
+                    nfe = self.diffusion.sample_steps * self.diffusion.nfe_per_step
+                    print(f"FM solver: {self.diffusion.solver}; steps: {self.diffusion.sample_steps}; NFE/window: {nfe}")
                     
                 
                 if self.opt.unidiffuser or self.opt.net_dim_pose == 192:
@@ -1623,17 +1866,18 @@ class DDPMTrainer_beat(object):
         wirte_file.writelines(i for i in ori_lines[:file_content_length])    
         wirte_file.close() 
 
+        # Preserve equivalent continuous Euler branches for BVH consumers.
+        denorm_rot_euler = np.rad2deg(
+            np.unwrap(np.deg2rad(denorm_rot_euler), axis=0)
+        )
+
         with open(os.path.join(save_dir, bvh_name),'a+') as wirte_file: 
             data_each_file = []
             for j, data in enumerate(denorm_rot_euler):
-                if not j:
-                    pass
-                else:          
-                    data_rotation = offset_data.copy()   
-                    for iii, (k, v) in enumerate(target_list.items()): # here is 147 rotations by 3
-                        #print(data_rotation[ori_list[k][1]-v:ori_list[k][1]], data[iii*3:iii*3+3])
-                        data_rotation[ori_list[k][1]-v:ori_list[k][1]] = data[iii*3:iii*3+3]
-                    data_each_file.append(data_rotation)
+                data_rotation = offset_data.copy()
+                for iii, (k, v) in enumerate(target_list.items()): # here is 147 rotations by 3
+                    data_rotation[ori_list[k][1]-v:ori_list[k][1]] = data[iii*3:iii*3+3]
+                data_each_file.append(data_rotation)
         
             for line_data in data_each_file:
                 line_data = np.array2string(line_data, max_line_width=np.inf, precision=6, suppress_small=False, separator=' ')
@@ -1766,4 +2010,3 @@ class ProgressMeter(object):
         num_digits = len(str(num_batches // 1))
         fmt = '{:' + str(num_digits) + 'd}'
         return '[' + fmt + '/' + fmt.format(num_batches) + ']'
-    

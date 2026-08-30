@@ -1,0 +1,35 @@
+{
+  "experiment": "beat_FM_aa_x0_aligned_v1",
+  "checkpoint": "pck_best.tar",
+  "checkpoint_epoch": 479,
+  "inference_mode": "sequential_test_windows",
+  "window_count": 8,
+  "frames_per_sample": 34,
+  "window_stride_frames": 10,
+  "overlap_frames": 24,
+  "total_frames": 104,
+  "fps": 15,
+  "audio_sample_rate": 16000,
+  "audio_samples": 110932,
+  "audio_path": "F:\\study\\DiffSHEG\\bvh_output\\aligned_v1_visual\\comparison_audio_sequential_stitched.wav",
+  "prediction": {
+    "velocity_rms": 1.1765303359957708,
+    "acceleration_rms": 0.6882632028477497,
+    "jerk_rms": 0.9384672669449118
+  },
+  "ground_truth": {
+    "velocity_rms": 2.623950065252796,
+    "acceleration_rms": 3.243847747122129,
+    "jerk_rms": 5.470664828344743
+  },
+  "ratios": {
+    "velocity": 0.4483813741640018,
+    "acceleration": 0.2121749405342349,
+    "jerk": 0.17154537819288473
+  },
+  "motion_spread_degrees": {
+    "prediction": 14.095853074196768,
+    "ground_truth": 7.692845890999929,
+    "ratio": 1.8323326989674773
+  }
+}

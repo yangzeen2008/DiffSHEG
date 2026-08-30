@@ -1,0 +1,124 @@
+{
+  "experiment": "beat_FM_aa_x0_aligned_v1",
+  "checkpoint": "pck_best.tar",
+  "checkpoint_epoch": 479,
+  "prediction_result": "BestPCK_e479_sequential_overlap24_long3_so3release_blend5",
+  "ground_truth_result": "BestPCK_e479_sequential_overlap24_long3_diverse20",
+  "inference": "RK4, 50 steps, overlap 24, transition blend 5",
+  "segments": [
+    {
+      "label": "quiet",
+      "source_window_start": 3571,
+      "window_count": 20,
+      "frames": 224,
+      "duration_seconds": 14.933333333333334,
+      "audio_rms": 0.05297874884645912,
+      "overlap_rms": {
+        "gesture_max": 0.0,
+        "expression_max": 0.0,
+        "ground_truth_max": 0.0
+      },
+      "audio_step_samples": [
+        10666,
+        10667
+      ],
+      "prediction": {
+        "velocity_rms": 1.8649022461532627,
+        "acceleration_rms": 1.7082072767355017,
+        "jerk_rms": 2.432539616213819
+      },
+      "ground_truth": {
+        "velocity_rms": 2.067148834438445,
+        "acceleration_rms": 2.105597371626341,
+        "jerk_rms": 3.105763560962657
+      },
+      "ratios": {
+        "velocity": 0.9021615739922646,
+        "acceleration": 0.8112696661546934,
+        "jerk": 0.7832339997768
+      },
+      "motion_spread_degrees": {
+        "prediction": 12.910559564170638,
+        "ground_truth": 20.114092417836158,
+        "ratio": 0.6418663738823338
+      },
+      "audio_path": "F:\\study\\DiffSHEG\\bvh_output\\long_validation_trials\\so3_release_blend5\\quiet\\audio.wav"
+    },
+    {
+      "label": "typical",
+      "source_window_start": 3799,
+      "window_count": 20,
+      "frames": 224,
+      "duration_seconds": 14.933333333333334,
+      "audio_rms": 0.10169054308887561,
+      "overlap_rms": {
+        "gesture_max": 0.0,
+        "expression_max": 0.0,
+        "ground_truth_max": 0.0
+      },
+      "audio_step_samples": [
+        10666,
+        10667
+      ],
+      "prediction": {
+        "velocity_rms": 2.044020329117199,
+        "acceleration_rms": 1.643602617665108,
+        "jerk_rms": 2.2049485881888105
+      },
+      "ground_truth": {
+        "velocity_rms": 2.067170626355707,
+        "acceleration_rms": 2.2072781158657904,
+        "jerk_rms": 3.466059825942869
+      },
+      "ratios": {
+        "velocity": 0.9888009741705162,
+        "acceleration": 0.74462869261965,
+        "jerk": 0.6361542209067323
+      },
+      "motion_spread_degrees": {
+        "prediction": 17.16559410801108,
+        "ground_truth": 20.468040265224047,
+        "ratio": 0.8386535244986818
+      },
+      "audio_path": "F:\\study\\DiffSHEG\\bvh_output\\long_validation_trials\\so3_release_blend5\\typical\\audio.wav"
+    },
+    {
+      "label": "energetic",
+      "source_window_start": 944,
+      "window_count": 20,
+      "frames": 224,
+      "duration_seconds": 14.933333333333334,
+      "audio_rms": 0.1500108282402649,
+      "overlap_rms": {
+        "gesture_max": 0.0,
+        "expression_max": 0.0,
+        "ground_truth_max": 0.0
+      },
+      "audio_step_samples": [
+        10666,
+        10667
+      ],
+      "prediction": {
+        "velocity_rms": 1.7909796746938091,
+        "acceleration_rms": 1.5277130060179285,
+        "jerk_rms": 2.1623854940588494
+      },
+      "ground_truth": {
+        "velocity_rms": 1.8630128942790476,
+        "acceleration_rms": 1.665138651542745,
+        "jerk_rms": 2.3473821999409905
+      },
+      "ratios": {
+        "velocity": 0.9613350933821024,
+        "acceleration": 0.9174689474672321,
+        "jerk": 0.9211902067388976
+      },
+      "motion_spread_degrees": {
+        "prediction": 13.030928453438717,
+        "ground_truth": 15.513104879613126,
+        "ratio": 0.8399948659254916
+      },
+      "audio_path": "F:\\study\\DiffSHEG\\bvh_output\\long_validation_trials\\so3_release_blend5\\energetic\\audio.wav"
+    }
+  ]
+}

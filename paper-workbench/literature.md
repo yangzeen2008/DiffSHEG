@@ -12,6 +12,10 @@
 | DiffGesture | 语音手势生成 | 1.2 | 扩散式手势生成相关工作 | 否 | 否 | 待精读 |
 | DiffuseStyleGesture | 风格化手势 | 1.2 | 风格控制与扩散生成相关工作 | 否 | 否 | 待精读 |
 | VOCA / FaceFormer / MeshTalk | 面部动画 | 1.2 | 面部动画技术演进 | 否 | 否 | 待分别登记 |
+| matchttsg2024 | Match-TTSG / Unified Speech and Gesture Synthesis Using Flow Matching | 1.2、2 | FM 已用于语音与三维手势联合生成，但不包含面部表情 | 否 | 否 | 待精读；限制“首次 FM 手势”主张 |
+| gesturelsm2025 | GestureLSM | 1.2、3、4 | FM/shortcut 已用于包含面部在内的多区域整体手势生成 | 否 | 否 | 待精读；对比多区域交互与单向三角结构 |
+| globaldiff2026 | GlobalDiff | 1.2、3、4 | 已有“先预测表情，再将表情作为身体动作 CFM 条件”的接近方案 | 否 | 否 | 最接近工作；需逐页核对并设计直接对比 |
+| holisticsemges2026 | HolisticSemGes / SemConFlow | 1.2、3、4 | 复合整体潜变量上的语义条件 Flow Matching | 否 | 否 | 待精读；对比整体共享潜变量与定向速度场 |
 
 ## 文献进入正文前的门槛
 
@@ -19,4 +23,3 @@
 - 作者、标题、会议/期刊、年份、页码、DOI/arXiv 信息已核对。
 - 台账中写明它支持的具体句子或公式。
 - 引文没有把相关性写成因果，也没有把作者推测写成事实。
-

@@ -1,0 +1,164 @@
+{
+  "prediction": "blend10",
+  "segments": [
+    {
+      "label": "quiet",
+      "trials": [
+        {
+          "spine_sigma": 0.0,
+          "arm_sigma": 0.0,
+          "velocity_ratio": 0.9936817570136187,
+          "acceleration_ratio": 0.5000451427401387,
+          "jerk_ratio": 0.41597170295453334,
+          "motion_spread_ratio": 0.690602355882092
+        },
+        {
+          "spine_sigma": 0.4,
+          "arm_sigma": 0.6,
+          "velocity_ratio": 0.9546963126716981,
+          "acceleration_ratio": 0.3917373026646749,
+          "jerk_ratio": 0.233881690224682,
+          "motion_spread_ratio": 0.6882554617872793
+        },
+        {
+          "spine_sigma": 0.55,
+          "arm_sigma": 0.8,
+          "velocity_ratio": 0.9325559858104474,
+          "acceleration_ratio": 0.3512395318518297,
+          "jerk_ratio": 0.16569854231867118,
+          "motion_spread_ratio": 0.6872866683580755
+        },
+        {
+          "spine_sigma": 0.7,
+          "arm_sigma": 1.0,
+          "velocity_ratio": 0.9110757422700881,
+          "acceleration_ratio": 0.3261849714358371,
+          "jerk_ratio": 0.1340211146821124,
+          "motion_spread_ratio": 0.6845181587406387
+        },
+        {
+          "spine_sigma": 0.85,
+          "arm_sigma": 1.2,
+          "velocity_ratio": 0.888952047494683,
+          "acceleration_ratio": 0.306669263569667,
+          "jerk_ratio": 0.11562994230547852,
+          "motion_spread_ratio": 0.6826693342580681
+        },
+        {
+          "spine_sigma": 1.0,
+          "arm_sigma": 1.4,
+          "velocity_ratio": 0.8663972962371295,
+          "acceleration_ratio": 0.2904192697171697,
+          "jerk_ratio": 0.10387211002825954,
+          "motion_spread_ratio": 0.6806676187685372
+        }
+      ]
+    },
+    {
+      "label": "typical",
+      "trials": [
+        {
+          "spine_sigma": 0.0,
+          "arm_sigma": 0.0,
+          "velocity_ratio": 1.0889140137391566,
+          "acceleration_ratio": 0.4078261223559445,
+          "jerk_ratio": 0.2854980397133486,
+          "motion_spread_ratio": 0.8599052922227678
+        },
+        {
+          "spine_sigma": 0.4,
+          "arm_sigma": 0.6,
+          "velocity_ratio": 1.0618767771320847,
+          "acceleration_ratio": 0.3402580578834382,
+          "jerk_ratio": 0.15673842379768815,
+          "motion_spread_ratio": 0.8542258350075749
+        },
+        {
+          "spine_sigma": 0.55,
+          "arm_sigma": 0.8,
+          "velocity_ratio": 1.0448029585688996,
+          "acceleration_ratio": 0.3167078207888164,
+          "jerk_ratio": 0.11246683931643656,
+          "motion_spread_ratio": 0.8504117137290399
+        },
+        {
+          "spine_sigma": 0.7,
+          "arm_sigma": 1.0,
+          "velocity_ratio": 1.0265778506501637,
+          "acceleration_ratio": 0.30119789944100683,
+          "jerk_ratio": 0.09323744566216866,
+          "motion_spread_ratio": 0.8453988147918665
+        },
+        {
+          "spine_sigma": 0.85,
+          "arm_sigma": 1.2,
+          "velocity_ratio": 1.0066701395764734,
+          "acceleration_ratio": 0.28786971014746754,
+          "jerk_ratio": 0.08185477095055729,
+          "motion_spread_ratio": 0.839616548798388
+        },
+        {
+          "spine_sigma": 1.0,
+          "arm_sigma": 1.4,
+          "velocity_ratio": 0.985484941571388,
+          "acceleration_ratio": 0.27568629927095584,
+          "jerk_ratio": 0.07413521610015425,
+          "motion_spread_ratio": 0.8333792816885099
+        }
+      ]
+    },
+    {
+      "label": "energetic",
+      "trials": [
+        {
+          "spine_sigma": 0.0,
+          "arm_sigma": 0.0,
+          "velocity_ratio": 1.0321458090233806,
+          "acceleration_ratio": 0.47681536801951546,
+          "jerk_ratio": 0.38643678090175254,
+          "motion_spread_ratio": 0.8726302521036073
+        },
+        {
+          "spine_sigma": 0.4,
+          "arm_sigma": 0.6,
+          "velocity_ratio": 1.004896317607715,
+          "acceleration_ratio": 0.3892946403007048,
+          "jerk_ratio": 0.21421627886746433,
+          "motion_spread_ratio": 0.8695567682202915
+        },
+        {
+          "spine_sigma": 0.55,
+          "arm_sigma": 0.8,
+          "velocity_ratio": 0.9882139575206621,
+          "acceleration_ratio": 0.35765790754127313,
+          "jerk_ratio": 0.15140187331580388,
+          "motion_spread_ratio": 0.8665858232434825
+        },
+        {
+          "spine_sigma": 0.7,
+          "arm_sigma": 1.0,
+          "velocity_ratio": 0.9708221308436964,
+          "acceleration_ratio": 0.3372170281711425,
+          "jerk_ratio": 0.12218043580031492,
+          "motion_spread_ratio": 0.8635750341990647
+        },
+        {
+          "spine_sigma": 0.85,
+          "arm_sigma": 1.2,
+          "velocity_ratio": 0.9520440829267349,
+          "acceleration_ratio": 0.3203005641506702,
+          "jerk_ratio": 0.10487130790036613,
+          "motion_spread_ratio": 0.8603716730065096
+        },
+        {
+          "spine_sigma": 1.0,
+          "arm_sigma": 1.4,
+          "velocity_ratio": 0.9321577068288796,
+          "acceleration_ratio": 0.3052101265118937,
+          "jerk_ratio": 0.09332799284564805,
+          "motion_spread_ratio": 0.857971604528011
+        }
+      ]
+    }
+  ]
+}

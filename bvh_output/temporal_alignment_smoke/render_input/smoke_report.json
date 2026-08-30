@@ -1,0 +1,36 @@
+{
+  "source_clip": "1_wayne_0_100_100",
+  "source_face": "F:\\study\\DiffSHEG\\bvh_output\\temporal_alignment_smoke\\aligned_cache\\train\\facial52\\1_wayne_0_100_100.json",
+  "source_audio": "F:\\study\\DiffSHEG\\bvh_output\\temporal_alignment_smoke\\aligned_cache\\train\\wave16k\\1_wayne_0_100_100.npy",
+  "source_motion": "F:\\study\\DiffSHEG\\bvh_output\\temporal_alignment_smoke\\aligned_cache\\train\\bvh_rot\\1_wayne_0_100_100.bvh",
+  "fps": 15,
+  "audio_rate": 16000,
+  "start_frame": 240,
+  "end_frame_exclusive": 465,
+  "start_seconds": 16.0,
+  "duration_seconds": 15.0,
+  "frames": 225,
+  "audio_samples": 240000,
+  "head_motion": {
+    "included": true,
+    "source_chain": [
+      "Hips",
+      "Spine",
+      "Spine1",
+      "Spine2",
+      "Spine3",
+      "Neck",
+      "Head"
+    ],
+    "representation": "relative 3x3 BVH rotation matrix, XYZ local rotations composed root-to-head",
+    "reference_frame": 240
+  },
+  "selection_metrics": {
+    "audio_rms": 0.15670050422959966,
+    "expression_range_p90_p10": 0.15721468496702154,
+    "expression_velocity_rms": 0.05941869657965617,
+    "combined_normalized_score": 2.299270402766768
+  },
+  "face_output": "F:\\study\\DiffSHEG\\bvh_output\\temporal_alignment_smoke\\render_input\\ground_truth_aligned.json",
+  "audio_output": "F:\\study\\DiffSHEG\\bvh_output\\temporal_alignment_smoke\\render_input\\audio_aligned.wav"
+}

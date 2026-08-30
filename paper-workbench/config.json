@@ -27,7 +27,7 @@
     "PROGRESS.md",
     "article/*.md",
     "docs/*.md",
-    "paper-workbench/*.md"
+    "paper-workbench/*.md",
+    "paper-workbench/records/*.md"
   ]
 }
-

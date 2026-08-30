@@ -1,0 +1,221 @@
+{
+  "blender_version": "5.2.1 LTS",
+  "source_blend": "F:\\study\\DiffSHEG\\assets\\face_models\\microsoft_rocketbox_female_adult_01_arkit\\rocketbox_arkit_ready.blend",
+  "output_blend": "F:\\study\\DiffSHEG\\assets\\face_models\\microsoft_rocketbox_female_adult_01_arkit\\rocketbox_arkit_clean_clay.blend",
+  "mesh": "f001_hipoly_81_bones_opacity",
+  "shape_key_count": 176,
+  "diffsheg_mapped_count": 51,
+  "missing_targets": [],
+  "material_replacements": {
+    "f001_body": "Clay_Hidden_Body",
+    "f001_head": "Clay_Head",
+    "f001_opacity": "Clay_Hidden_Cards"
+  },
+  "eye_card_split": {
+    "component_count": 8,
+    "polygon_count": 208,
+    "material_index": 3,
+    "components": [
+      {
+        "polygons": 28,
+        "center": [
+          3.190091133117676,
+          -4.228987693786621,
+          160.64218139648438
+        ],
+        "size": [
+          2.8388354778289795,
+          1.0616168975830078,
+          0.8328704833984375
+        ]
+      },
+      {
+        "polygons": 28,
+        "center": [
+          -3.190883159637451,
+          -4.255404472351074,
+          160.64236450195312
+        ],
+        "size": [
+          2.835629463195801,
+          1.065434455871582,
+          0.833251953125
+        ]
+      },
+      {
+        "polygons": 24,
+        "center": [
+          -3.217405319213867,
+          -4.455072402954102,
+          161.5377197265625
+        ],
+        "size": [
+          3.5174484252929688,
+          1.313915729522705,
+          0.90594482421875
+        ]
+      },
+      {
+        "polygons": 24,
+        "center": [
+          3.216993808746338,
+          -4.429666519165039,
+          161.53805541992188
+        ],
+        "size": [
+          3.5189552307128906,
+          1.3123183250427246,
+          0.9055328369140625
+        ]
+      },
+      {
+        "polygons": 28,
+        "center": [
+          -3.190883159637451,
+          -4.255404472351074,
+          160.64236450195312
+        ],
+        "size": [
+          2.835629463195801,
+          1.065434455871582,
+          0.833251953125
+        ]
+      },
+      {
+        "polygons": 28,
+        "center": [
+          3.190091133117676,
+          -4.228987693786621,
+          160.64218139648438
+        ],
+        "size": [
+          2.8388354778289795,
+          1.0616168975830078,
+          0.8328704833984375
+        ]
+      },
+      {
+        "polygons": 24,
+        "center": [
+          -3.217405319213867,
+          -4.455072402954102,
+          161.5377197265625
+        ],
+        "size": [
+          3.5174484252929688,
+          1.313915729522705,
+          0.90594482421875
+        ]
+      },
+      {
+        "polygons": 24,
+        "center": [
+          3.216993808746338,
+          -4.429666519165039,
+          161.53805541992188
+        ],
+        "size": [
+          3.5189552307128906,
+          1.3123183250427246,
+          0.9055328369140625
+        ]
+      }
+    ]
+  },
+  "image_texture_node_count": 2,
+  "image_texture_nodes": [
+    {
+      "material": "Clay_Eye_Eyelash_Cards",
+      "node": "Image Texture"
+    },
+    {
+      "material": "Clay_Eye_Eyelash_Cards",
+      "node": "Image Texture.001"
+    }
+  ],
+  "image_datablock_count": 4,
+  "file_image_datablock_count": 2,
+  "viewer_image_datablock_count": 2,
+  "visibility_policy": "head clay visible; eye/eyelash opacity islands keep their alpha texture; clothing/body and hair cards hidden",
+  "render_setup": {
+    "engine": "BLENDER_EEVEE",
+    "camera_type": "PERSP",
+    "camera_lens_mm": 85.0,
+    "camera_location": [
+      1.1920928955078125e-07,
+      -0.949052095413208,
+      1.547003149986267
+    ],
+    "exposure_ev": -1.350000023841858,
+    "head_base_color": [
+      0.11999999731779099,
+      0.11999999731779099,
+      0.11999999731779099,
+      1.0
+    ],
+    "head_roughness": 0.5799999833106995,
+    "lights": {
+      "Key_Light": {
+        "energy": 212.74815368652344,
+        "size": 0.2789355516433716,
+        "location": [
+          -0.6276048421859741,
+          -0.7049835324287415,
+          2.017706871032715
+        ]
+      },
+      "Fill_Light": {
+        "energy": 15.196296691894531,
+        "size": 0.5230041742324829,
+        "location": [
+          0.5578712224960327,
+          -0.3911810517311096,
+          1.634170413017273
+        ]
+      },
+      "Rim_Light": {
+        "energy": 54.706668853759766,
+        "size": 0.31380248069763184,
+        "location": [
+          0.34866955876350403,
+          0.6896941661834717,
+          1.9131059646606445
+        ]
+      }
+    }
+  },
+  "renders": [
+    {
+      "preset": "neutral",
+      "values": {},
+      "output": "F:\\study\\DiffSHEG\\bvh_output\\face_model_validation\\clean_clay_expression_smoke\\neutral.png"
+    },
+    {
+      "preset": "smile",
+      "values": {
+        "AK_07_CheekSquintLeft": 0.22,
+        "AK_08_CheekSquintRight": 0.22,
+        "AK_44_MouthSmileLeft": 0.78,
+        "AK_45_MouthSmileRight": 0.78
+      },
+      "output": "F:\\study\\DiffSHEG\\bvh_output\\face_model_validation\\clean_clay_expression_smoke\\smile.png"
+    },
+    {
+      "preset": "jaw_open",
+      "values": {
+        "AK_25_JawOpen": 0.68,
+        "AK_32_MouthFunnel": 0.18
+      },
+      "output": "F:\\study\\DiffSHEG\\bvh_output\\face_model_validation\\clean_clay_expression_smoke\\jaw_open.png"
+    },
+    {
+      "preset": "blink_brow",
+      "values": {
+        "AK_03_BrowInnerUp": 0.35,
+        "AK_09_EyeBlinkLeft": 0.88,
+        "AK_10_EyeBlinkRight": 0.88
+      },
+      "output": "F:\\study\\DiffSHEG\\bvh_output\\face_model_validation\\clean_clay_expression_smoke\\blink_brow.png"
+    }
+  ]
+}

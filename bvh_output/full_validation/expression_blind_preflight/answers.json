@@ -1,0 +1,45 @@
+{
+  "seed": 1234,
+  "answers": [
+    {
+      "sample_id": "sample_01",
+      "candidate_A": "blend5",
+      "candidate_B": "blend7"
+    },
+    {
+      "sample_id": "sample_02",
+      "candidate_A": "blend5",
+      "candidate_B": "blend7"
+    },
+    {
+      "sample_id": "sample_03",
+      "candidate_A": "blend5",
+      "candidate_B": "blend7"
+    },
+    {
+      "sample_id": "sample_04",
+      "candidate_A": "blend7",
+      "candidate_B": "blend5"
+    },
+    {
+      "sample_id": "sample_05",
+      "candidate_A": "blend5",
+      "candidate_B": "blend7"
+    },
+    {
+      "sample_id": "sample_06",
+      "candidate_A": "blend7",
+      "candidate_B": "blend5"
+    },
+    {
+      "sample_id": "sample_07",
+      "candidate_A": "blend5",
+      "candidate_B": "blend7"
+    },
+    {
+      "sample_id": "sample_08",
+      "candidate_A": "blend7",
+      "candidate_B": "blend5"
+    }
+  ]
+}

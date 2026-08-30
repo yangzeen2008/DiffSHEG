@@ -7,219 +7,235 @@ BEAT HuBERT 特征提取脚本（文件夹版）
 读取方式：np.load(path / f"{idx:05d}.npy")
 
 用法：
-    f:\\study\\DiffSHEG\\.venv\\Scripts\\python.exe build_hubert_cache.py --split train
-    f:\\study\\DiffSHEG\\.venv\\Scripts\\python.exe build_hubert_cache.py --split val
-    f:\\study\\DiffSHEG\\.venv\\Scripts\\python.exe build_hubert_cache.py --split test
+    f:\\study\\DiffSHEG\\.venv\\Scripts\\python.exe build_hubert_cache.py --split train --force
+    f:\\study\\DiffSHEG\\.venv\\Scripts\\python.exe build_hubert_cache.py --split val --force
+    f:\\study\\DiffSHEG\\.venv\\Scripts\\python.exe build_hubert_cache.py --split test --force
 """
 
-import os, sys, glob, math, argparse
+import os, sys, argparse, json, pickle
 import numpy as np
 import torch
-import torch.nn.functional as F
+import lmdb
 from pathlib import Path
 from tqdm import tqdm
+from utils.hubert import HUBERT_CACHE_VERSION
+from utils.cache_versions import MOTION_CACHE_VERSION, MOTION_MANIFEST_NAME
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 # ===== 配置（必须与训练参数完全一致）=====
-CACHE_ROOT    = "./data/BEAT/beat_cache/beat_4english_15_141"
+CACHE_ROOT    = "./data/BEAT/beat_cache/beat_4english_15_141_sync_v1"
 POSE_LEN      = 34        # --n_poses
 STRIDE        = 10        # BEAT 数据集 stride（runner.py line 168）
 POSE_FPS      = 15        # 姿态帧率
 AUDIO_FPS     = 16000     # 音频采样率
-MULTI_LEN_TRAINING = [1.0]  # 默认单尺度
 DEVICE        = "cuda:0"
+CACHE_VERSION = HUBERT_CACHE_VERSION
 
-# HuBERT CNN 参数（固定，不要改）
-HUB_KERNEL = 400
-HUB_STRIDE = 320
 # ==========================================
 
 
 def load_hubert_model(device):
-    from transformers import Wav2Vec2Processor, HubertModel
+    from utils.hubert import load_hubert_components
     print("Loading HuBERT processor...")
-    processor = Wav2Vec2Processor.from_pretrained("facebook/hubert-large-ls960-ft")
     print("Loading HuBERT model...")
-    model = HubertModel.from_pretrained("facebook/hubert-large-ls960-ft").to(device)
-    model.eval()
-    return processor, model
+    return load_hubert_components(device=device)
+
+
+def _lmdb_path(split):
+    cache_name = "bvh_rot_cache" if split == "test" else f"bvh_rot_cache_len{POSE_LEN}_stride{STRIDE}"
+    return os.path.join(CACHE_ROOT, split, cache_name)
+
+
+def _output_path(split):
+    return os.path.join(
+        CACHE_ROOT, split, "aud_feat_cache", "hubert_large_ls960_ft"
+    )
+
+
+def _read_manifest(out_dir):
+    path = os.path.join(out_dir, "manifest.json")
+    if not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8") as file:
+        return json.load(file)
+
+
+def _cache_is_current(out_dir, sample_count, motion_cache_id):
+    manifest = _read_manifest(out_dir)
+    if not manifest:
+        return False
+    npy_count = sum(1 for _ in Path(out_dir).glob("*.npy"))
+    return (
+        manifest.get("cache_version") == CACHE_VERSION
+        and manifest.get("sample_count") == sample_count
+        and manifest.get("source_motion_cache_version") == MOTION_CACHE_VERSION
+        and manifest.get("source_motion_cache_id") == motion_cache_id
+        and npy_count == sample_count
+    )
+
+
+def _load_audio_batch(environment, indices):
+    audio_batch = []
+    with environment.begin(write=False) as transaction:
+        for index in indices:
+            value = transaction.get(f"{index:05d}".encode("ascii"))
+            if value is None:
+                raise RuntimeError(f"LMDB sample {index:05d} is missing")
+            sample = pickle.loads(value)
+            audio = np.asarray(sample[2], dtype=np.float32)
+            if audio.ndim == 2:
+                audio = audio[:, 0]
+            audio_batch.append(audio)
+    return audio_batch
 
 
 @torch.no_grad()
-def extract_hubert_full(audio_np, processor, model, device):
-    """对整段音频提取 HuBERT 特征，返回 [T_hub, 1024]。"""
-    if audio_np.ndim == 2:
-        audio_np = audio_np[:, 0]
-    input_values = processor(
-        audio_np, return_tensors="pt", sampling_rate=16000
-    ).input_values.to(device)  # [1, N]
-
-    clip_length = HUB_STRIDE * 1000
-    num_iter    = input_values.shape[1] // clip_length
-    expected_T  = (input_values.shape[1] - (HUB_KERNEL - HUB_STRIDE)) // HUB_STRIDE
-    res_lst = []
-
-    for i in range(num_iter):
-        if i == 0:
-            start, end = 0, clip_length - HUB_STRIDE + HUB_KERNEL
-        else:
-            start = clip_length * i
-            end   = start + (clip_length - HUB_STRIDE + HUB_KERNEL)
-        hidden = model(input_values[:, start:end]).last_hidden_state
-        res_lst.append(hidden[0].cpu())
-
-    tail = input_values[:, clip_length * num_iter:]
-    if tail.shape[1] >= HUB_KERNEL:
-        hidden = model(tail).last_hidden_state
-        res_lst.append(hidden[0].cpu())
-
-    if not res_lst:
-        return None
-    ret = torch.cat(res_lst, dim=0)  # [T_hub, 1024]
-    if ret.shape[0] < expected_T:
-        ret = F.pad(ret.T.unsqueeze(0), (0, expected_T - ret.shape[0])).squeeze(0).T
-    else:
-        ret = ret[:expected_T]
-    return ret  # [T_hub, 1024]
+def _extract_batch(audio_batch, processor, model, device):
+    processed = processor(
+        audio_batch,
+        return_tensors="pt",
+        sampling_rate=AUDIO_FPS,
+        padding=True,
+    )
+    model_inputs = {
+        key: value.to(device)
+        for key, value in processed.items()
+        if key in ("input_values", "attention_mask")
+    }
+    hidden = model(**model_inputs).last_hidden_state.cpu().numpy()
+    features = []
+    for row, audio in zip(hidden, audio_batch):
+        feature_length = int(
+            model._get_feat_extract_output_lengths(torch.tensor(len(audio))).item()
+        )
+        features.append(row[:feature_length].astype(np.float32, copy=False))
+    return features
 
 
-def build_split(split, processor, model):
+def build_split(split, processor, model, batch_size=8, force=False):
+    """Build a cache whose numeric keys exactly match the dataset LMDB."""
     split_dir = os.path.join(CACHE_ROOT, split)
-    bvh_dir   = os.path.join(split_dir, "bvh_rot")
-    wav_dir   = os.path.join(split_dir, "wave16k")
-    out_dir   = os.path.join(split_dir, "aud_feat_cache", "hubert_large_ls960_ft")
+    lmdb_dir = _lmdb_path(split)
+    out_dir = _output_path(split)
+    if not os.path.isdir(lmdb_dir):
+        raise FileNotFoundError(
+            f"Dataset LMDB does not exist: {lmdb_dir}. Build BeatDataset first."
+        )
+    motion_manifest_path = os.path.join(lmdb_dir, MOTION_MANIFEST_NAME)
+    if not os.path.exists(motion_manifest_path):
+        raise RuntimeError(
+            f"Motion cache is unversioned: {lmdb_dir}. Rebuild it with "
+            "runner.py --mode prepare_cache --rebuild_motion_cache first."
+        )
+    with open(motion_manifest_path, "r", encoding="utf-8") as manifest_file:
+        motion_manifest = json.load(manifest_file)
+    if motion_manifest.get("cache_version") != MOTION_CACHE_VERSION:
+        raise RuntimeError(
+            f"Motion cache version mismatch in {motion_manifest_path}: "
+            f"expected {MOTION_CACHE_VERSION}"
+        )
+    motion_cache_id = motion_manifest.get("cache_id")
+    if not isinstance(motion_cache_id, str) or not motion_cache_id:
+        raise RuntimeError(
+            f"Motion cache has no cache_id: {motion_manifest_path}. "
+            "Re-run prepare_cache adoption/rebuild with the current code."
+        )
 
-    # 检查是否已有完整输出
-    done_flag = os.path.join(out_dir, "done.txt")
-    if os.path.exists(done_flag):
-        with open(done_flag) as f:
-            n = f.read().strip()
-        print(f"[{split}] 已完成，共 {n} 个样本，跳过。")
+    environment = lmdb.open(lmdb_dir, readonly=True, lock=False, readahead=False)
+    with environment.begin(write=False) as transaction:
+        sample_count = transaction.stat()["entries"]
+
+    if _cache_is_current(out_dir, sample_count, motion_cache_id) and not force:
+        print(f"[{split}] aligned cache already complete: {sample_count} samples")
+        environment.close()
         return
 
+    old_files = list(Path(out_dir).glob("*.npy")) if os.path.isdir(out_dir) else []
+    progress_path = os.path.join(out_dir, ".aligned_cache_progress")
+    if old_files and not force and not os.path.exists(progress_path):
+        environment.close()
+        raise RuntimeError(
+            f"[{split}] found an unversioned or mismatched HuBERT cache "
+            f"({len(old_files)} files vs {sample_count} LMDB samples). "
+            "Re-run with --force to rebuild it by exact LMDB index."
+        )
+
     os.makedirs(out_dir, exist_ok=True)
+    start_index = 0
+    if os.path.exists(progress_path):
+        with open(progress_path, "r", encoding="utf-8") as file:
+            start_index = int(file.read().strip() or 0)
+        print(f"[{split}] resuming aligned rebuild at sample {start_index}")
+    else:
+        for marker_name in ("done.txt", "manifest.json"):
+            marker_path = os.path.join(out_dir, marker_name)
+            if os.path.exists(marker_path):
+                os.remove(marker_path)
+        with open(progress_path, "w", encoding="utf-8") as file:
+            file.write("0")
 
-    mean_pose_path = os.path.join(CACHE_ROOT, "train", "bvh_rot", "bvh_mean.npy")
-    mean_pose = np.load(mean_pose_path)  # 仅用维度做参考，不做逐帧对比
+    print(f"[{split}] LMDB-aligned HuBERT cache: {sample_count} samples → {out_dir}")
+    indices = range(start_index, sample_count, batch_size)
+    for batch_start in tqdm(indices, desc=f"[{split}]", total=(sample_count - start_index + batch_size - 1) // batch_size):
+        batch_indices = list(range(batch_start, min(batch_start + batch_size, sample_count)))
+        audio_batch = _load_audio_batch(environment, batch_indices)
+        feature_batch = _extract_batch(audio_batch, processor, model, DEVICE)
+        for index, features in zip(batch_indices, feature_batch):
+            np.save(os.path.join(out_dir, f"{index:05d}.npy"), features)
+        with open(progress_path, "w", encoding="utf-8") as file:
+            file.write(str(batch_indices[-1] + 1))
 
-    bvh_files = sorted(glob.glob(os.path.join(bvh_dir, "*.bvh")))
-    print(f"[{split}] 处理 {len(bvh_files)} 个 clip → {out_dir}")
+    # Remove stale tail files only after every aligned sample was written.
+    for path in Path(out_dir).glob("*.npy"):
+        if int(path.stem) >= sample_count:
+            path.unlink()
 
-    global_idx = 0
-    is_test = (split == "test")
-
-    # 支持断点续传：跳过已生成的文件
-    existing = set(int(p.stem) for p in Path(out_dir).glob("*.npy"))
-    if existing:
-        print(f"  断点续传：已有 {len(existing)} 个样本，继续生成...")
-        global_idx = max(existing) + 1
-
-    for bvh_path in tqdm(bvh_files, desc=f"[{split}]"):
-        stem = Path(bvh_path).stem
-        wav_path = os.path.join(wav_dir, stem + ".npy")
-        if not os.path.exists(wav_path):
-            print(f"  WARN: wav 不存在，跳过 {stem}")
-            continue
-
-        # 1. 读 BVH 帧数
-        pose_frames = []
-        with open(bvh_path, "r") as f:
-            for line in f:
-                vals = line.strip().split()
-                if vals:
-                    try:
-                        pose_frames.append([float(v) for v in vals])
-                    except ValueError:
-                        pass
-        if not pose_frames:
-            continue
-        pose_arr = np.array(pose_frames)  # [T, D_raw]
-
-        # 2. 窗口范围（复现 build_cache 逻辑）
-        round_seconds = pose_arr.shape[0] // POSE_FPS
-        clip_e_f_pose = round_seconds * POSE_FPS
-        clip_s_f_pose = 0
-
-        # 3. 提取整段 HuBERT
-        audio = np.load(wav_path).astype(np.float32)
-        hubert_full = extract_hubert_full(audio, processor, model, DEVICE)
-        if hubert_full is None:
-            print(f"  WARN: HuBERT 提取失败，跳过 {stem}")
-            continue
-
-        # 4. 滑窗分割
-        for ratio in MULTI_LEN_TRAINING:
-            if is_test:
-                cur_pose_len = clip_e_f_pose - clip_s_f_pose
-                cur_stride   = cur_pose_len
-            else:
-                cur_stride   = int(ratio * STRIDE)
-                cur_pose_len = int(POSE_LEN * ratio)
-
-            num_subdiv = math.floor(
-                (clip_e_f_pose - clip_s_f_pose - cur_pose_len) / cur_stride
-            ) + 1
-
-            audio_short_samples = math.floor(cur_pose_len / POSE_FPS * AUDIO_FPS)
-            hub_per_window = math.floor(
-                (audio_short_samples - (HUB_KERNEL - HUB_STRIDE)) / HUB_STRIDE
-            )
-            hub_per_window = max(hub_per_window, 1)
-
-            for i in range(num_subdiv):
-                start_pose = clip_s_f_pose + i * cur_stride
-                sample_pose = pose_arr[start_pose: start_pose + cur_pose_len]
-
-                # 静止过滤
-                if not is_test:
-                    pose_std = sample_pose.std()
-                    if pose_std < 0.5:
-                        continue
-
-                # HuBERT 对应窗口
-                audio_start_sample = math.floor(
-                    i * cur_stride * AUDIO_FPS / POSE_FPS
-                )
-                hub_start = math.floor(audio_start_sample / HUB_STRIDE)
-                hub_end   = hub_start + hub_per_window
-
-                if hub_end <= hubert_full.shape[0]:
-                    chunk = hubert_full[hub_start:hub_end].numpy()
-                else:
-                    chunk = hubert_full[hub_start:].numpy()
-                    pad_len = hub_per_window - chunk.shape[0]
-                    if pad_len > 0:
-                        chunk = np.pad(chunk, ((0, pad_len), (0, 0)))
-                    chunk = chunk[:hub_per_window]
-
-                # 跳过断点续传已有的
-                if global_idx in existing:
-                    global_idx += 1
-                    continue
-
-                out_path = os.path.join(out_dir, f"{global_idx:05d}.npy")
-                np.save(out_path, chunk.astype(np.float32))
-                global_idx += 1
-
-    # 写完成标志
-    with open(done_flag, "w") as f:
-        f.write(str(global_idx))
-    print(f"[{split}] 完成！写入 {global_idx} 个 HuBERT 样本 → {out_dir}")
+    manifest = {
+        "cache_version": CACHE_VERSION,
+        "sample_count": sample_count,
+        "source_lmdb": os.path.relpath(lmdb_dir, split_dir),
+        "source_motion_cache_version": MOTION_CACHE_VERSION,
+        "source_motion_cache_id": motion_cache_id,
+        "model": "facebook/hubert-large-ls960-ft",
+        "weight_norm_repaired": True,
+        "sample_rate": AUDIO_FPS,
+        "pose_length": POSE_LEN,
+        "stride": STRIDE,
+    }
+    with open(os.path.join(out_dir, "manifest.json"), "w", encoding="utf-8") as file:
+        json.dump(manifest, file, indent=2)
+    with open(os.path.join(out_dir, "done.txt"), "w", encoding="utf-8") as file:
+        file.write(str(sample_count))
+    os.remove(progress_path)
+    environment.close()
+    print(f"[{split}] complete: {sample_count} aligned HuBERT samples")
 
 
 def main():
+    global CACHE_ROOT
     parser = argparse.ArgumentParser()
     parser.add_argument("--split", type=str, default="train",
                         choices=["train", "val", "test", "all"])
+    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument(
+        "--cache-root",
+        default=CACHE_ROOT,
+        help="Aligned BEAT cache root created by preprocess_beat.py",
+    )
+    parser.add_argument(
+        "--force", action="store_true",
+        help="Rebuild a legacy/mismatched cache in place; supports resume",
+    )
     args = parser.parse_args()
+    CACHE_ROOT = args.cache_root
 
     print(f"CUDA available: {torch.cuda.is_available()}")
     processor, model = load_hubert_model(DEVICE)
 
     splits = ["train", "val", "test"] if args.split == "all" else [args.split]
     for sp in splits:
-        build_split(sp, processor, model)
+        build_split(sp, processor, model, batch_size=max(1, args.batch_size), force=args.force)
 
     print("\n=== HuBERT 特征提取完成！===")
     print("注意：beat.py 的 HuBERT 读取部分已同步修改为 npy 文件读取模式")

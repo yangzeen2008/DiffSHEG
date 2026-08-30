@@ -1,0 +1,154 @@
+{
+  "blender_version": "5.2.1 LTS",
+  "source_blend": "F:\\study\\DiffSHEG\\assets\\face_models\\microsoft_rocketbox_female_adult_01_arkit\\rocketbox_arkit_ready.blend",
+  "output_blend": "F:\\study\\DiffSHEG\\assets\\face_models\\microsoft_rocketbox_female_adult_01_arkit\\rocketbox_arkit_clean_clay.blend",
+  "mesh": "f001_hipoly_81_bones_opacity",
+  "shape_key_count": 176,
+  "diffsheg_mapped_count": 51,
+  "missing_targets": [],
+  "material_replacements": {
+    "f001_body": "Clay_Hidden_Body",
+    "f001_head": "Clay_Head",
+    "f001_opacity": "Clay_Hidden_Cards"
+  },
+  "eye_card_split": null,
+  "eye_geometry_split": {
+    "component_count": 2,
+    "polygon_count": 252,
+    "material_index": 3,
+    "components": [
+      {
+        "polygons": 126,
+        "center": [
+          -3.0284950733184814,
+          -3.765028476715088,
+          161.27052307128906
+        ],
+        "size": [
+          3.037168025970459,
+          1.4521548748016357,
+          3.049407958984375
+        ]
+      },
+      {
+        "polygons": 126,
+        "center": [
+          3.0284488201141357,
+          -3.764570713043213,
+          161.27053833007812
+        ],
+        "size": [
+          3.0371670722961426,
+          1.452162504196167,
+          3.0494384765625
+        ]
+      }
+    ]
+  },
+  "image_texture_node_count": 3,
+  "image_texture_nodes": [
+    {
+      "material": "Clay_Textured_Eyeballs",
+      "node": "Image Texture"
+    },
+    {
+      "material": "Clay_Textured_Eyeballs",
+      "node": "Image Texture.001"
+    },
+    {
+      "material": "Clay_Textured_Eyeballs",
+      "node": "Image Texture.002"
+    }
+  ],
+  "image_datablock_count": 5,
+  "file_image_datablock_count": 3,
+  "viewer_image_datablock_count": 2,
+  "visibility_policy": {
+    "face": "neutral clay",
+    "eyeballs": "original textured material",
+    "eye_eyelash_cards": "hidden",
+    "hair_body_cards": "hidden",
+    "clothing_body": "hidden"
+  },
+  "render_setup": {
+    "engine": "BLENDER_EEVEE",
+    "camera_type": "PERSP",
+    "camera_lens_mm": 85.0,
+    "camera_location": [
+      1.1920928955078125e-07,
+      -0.949052095413208,
+      1.547003149986267
+    ],
+    "exposure_ev": -1.350000023841858,
+    "head_base_color": [
+      0.11999999731779099,
+      0.11999999731779099,
+      0.11999999731779099,
+      1.0
+    ],
+    "head_roughness": 0.5799999833106995,
+    "lights": {
+      "Key_Light": {
+        "energy": 212.74815368652344,
+        "size": 0.2789355516433716,
+        "location": [
+          -0.6276048421859741,
+          -0.7049835324287415,
+          2.017706871032715
+        ]
+      },
+      "Fill_Light": {
+        "energy": 15.196296691894531,
+        "size": 0.5230041742324829,
+        "location": [
+          0.5578712224960327,
+          -0.3911810517311096,
+          1.634170413017273
+        ]
+      },
+      "Rim_Light": {
+        "energy": 54.706668853759766,
+        "size": 0.31380248069763184,
+        "location": [
+          0.34866955876350403,
+          0.6896941661834717,
+          1.9131059646606445
+        ]
+      }
+    }
+  },
+  "renders": [
+    {
+      "preset": "neutral",
+      "values": {},
+      "output": "F:\\study\\DiffSHEG\\bvh_output\\face_model_validation\\clean_clay_final_no_cards_smoke\\neutral.png"
+    },
+    {
+      "preset": "smile",
+      "values": {
+        "AK_07_CheekSquintLeft": 0.22,
+        "AK_08_CheekSquintRight": 0.22,
+        "AK_44_MouthSmileLeft": 0.78,
+        "AK_45_MouthSmileRight": 0.78
+      },
+      "output": "F:\\study\\DiffSHEG\\bvh_output\\face_model_validation\\clean_clay_final_no_cards_smoke\\smile.png"
+    },
+    {
+      "preset": "jaw_open",
+      "values": {
+        "AK_25_JawOpen": 0.68,
+        "AK_32_MouthFunnel": 0.18
+      },
+      "output": "F:\\study\\DiffSHEG\\bvh_output\\face_model_validation\\clean_clay_final_no_cards_smoke\\jaw_open.png"
+    },
+    {
+      "preset": "blink_brow",
+      "values": {
+        "AK_03_BrowInnerUp": 0.35,
+        "AK_09_EyeBlinkLeft": 0.88,
+        "AK_10_EyeBlinkRight": 0.88
+      },
+      "output": "F:\\study\\DiffSHEG\\bvh_output\\face_model_validation\\clean_clay_final_no_cards_smoke\\blink_brow.png"
+    }
+  ]
+}

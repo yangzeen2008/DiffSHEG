@@ -10,6 +10,7 @@ import torch
 import numpy as np
 from tqdm import tqdm
 from options.train_options import TrainCompOptions
+from utils.motion_metrics import linear_pck_mse, normalized_axis_angle, rotation_pck_mse
 
 class AverageMeter:
     def __init__(self):
@@ -23,8 +24,13 @@ class AverageMeter:
         return self.sum / self.count if self.count else 0
 
 def main():
-    opt = TrainCompOptions().parse()
-    opt.is_train = False
+    parser = TrainCompOptions()
+    parser.initialize()
+    # Evaluation must never write or overwrite a training configuration, even
+    # when callers omit the otherwise unrelated --mode eval flag.
+    parser.is_train = False
+    parser.parser.set_defaults(mode='eval')
+    opt = parser.parse()
     opt.save_root = os.path.join(opt.checkpoints_dir, opt.dataset_name, opt.name)
     opt.model_dir = os.path.join(opt.save_root, 'model')
     opt.meta_dir = os.path.join(opt.save_root, 'meta')
@@ -129,6 +135,12 @@ def main():
     ckpt_path = os.path.join(opt.model_dir, opt.ckpt)
     print(f"Loading checkpoint: {ckpt_path}")
     ckpt = torch.load(ckpt_path, map_location='cpu')
+    if opt.flow_matching and opt.fm_expression_condition == 'auto':
+        saved_condition = ckpt.get('config', {}).get('fm_expression_condition')
+        opt.fm_expression_condition = (
+            saved_condition if saved_condition in ('x0', 'velocity') else 'velocity'
+        )
+        print(f"FM expression conditioning: {opt.fm_expression_condition}")
     encoder.load_state_dict(ckpt['encoder'], strict=False)
     epoch = ckpt.get('ep', 0)
     print(f"Loaded epoch {epoch}")
@@ -169,13 +181,18 @@ def main():
                 tar_pose = batch_data["pose_axis_angle"]
             else:
                 tar_pose = batch_data["pose"]
+            if opt.remove_hand and not opt.rot_6d:
+                tar_pose = tar_pose[..., list(range(0, 21)) + list(range(75, 87))]
             tar_pose = tar_pose.to(device)
             
-            if not opt.gesture_only:
-                tar_facial = batch_data["facial"].to(device)
-                motions = torch.cat([tar_pose, tar_facial], dim=-1)
-            else:
+            tar_facial = batch_data["facial"].to(device)
+            expression_mode = opt.expression_only or opt.gesCondition_expression_only
+            if expression_mode:
+                motions = tar_facial
+            elif opt.gesture_only or opt.expCondition_gesture_only is not None or opt.textExpEmoCondition_gesture_only:
                 motions = tar_pose
+            else:
+                motions = torch.cat([tar_pose, tar_facial], dim=-1)
             
             # Audio & Person ID & add_cond setup (matching ddpm_beat_trainer.py val loop)
             audio_emb = batch_data["aud_feat"].to(device) if opt.audio_rep is not None else None
@@ -207,23 +224,36 @@ def main():
                 
             B = motions.shape[0]
             
-            # Inpainting dict
-            overlap_len = getattr(opt, 'overlap_len', 4)
-            inpaint_dict = {}
-            if overlap_len > 0:
-                inpaint_dict['gt'] = motions
-                inpaint_dict['outpainting_mask'] = torch.zeros_like(motions, dtype=torch.bool, device=device)
-                inpaint_dict['outpainting_mask'][:, :overlap_len] = True
-            
             # Generate
             outputs = trainer.generate_batch(
-                audio_emb, p_id, opt.net_dim_pose, add_cond, inpaint_dict
+                audio_emb, p_id, opt.net_dim_pose, add_cond, {}
             )
+
+            if expression_mode:
+                outputs_for_eval = outputs
+                motions_for_eval = motions
+                pck_val, mse_val, _ = linear_pck_mse(
+                    outputs, motions, threshold=0.5
+                )
+            else:
+                metric_kwargs = dict(
+                    rot_6d=bool(opt.rot_6d),
+                    split_pos=opt.split_pos,
+                    mean_axis_angle=val_dataset.mean_pose_axis_angle,
+                    std_axis_angle=val_dataset.std_pose_axis_angle,
+                )
+                outputs_for_eval = normalized_axis_angle(outputs, **metric_kwargs)
+                motions_for_eval = normalized_axis_angle(motions, **metric_kwargs)
+                # Gesture-only SO(3) metrics. Facial coefficients are excluded
+                # and the threshold is measured in radians.
+                pck_val, mse_val, _ = rotation_pck_mse(
+                    outputs, motions, threshold=0.5, **metric_kwargs
+                )
             
             # FGD
             if eval_model is not None and not opt.no_fgd:
-                latent_out = eval_model(outputs[:, :34, :opt.split_pos].float())
-                latent_ori = eval_model(motions[:, :34, :opt.split_pos].float())
+                latent_out = eval_model(outputs_for_eval[:, :34].float())
+                latent_ori = eval_model(motions_for_eval[:, :34].float())
                 if latent_out_all is None:
                     latent_out_all = latent_out.cpu().numpy()
                     latent_ori_all = latent_ori.cpu().numpy()
@@ -231,56 +261,12 @@ def main():
                     latent_out_all = np.concatenate([latent_out_all, latent_out.cpu().numpy()])
                     latent_ori_all = np.concatenate([latent_ori_all, latent_ori.cpu().numpy()])
             
-            # MSE & PCK
-            seq = outputs.shape[1]
-            if opt.rot_6d:
-                import datasets.rotation_converter as rot_cvt
-                n_j = opt.split_pos // 6
-                
-                # Outputs: convert 6D to normalized axis-angle
-                out_ges_6d = outputs[..., :opt.split_pos]
-                mat_o = rot_cvt.rotation_6d_to_matrix(out_ges_6d.reshape(B*seq, n_j, 6))
-                aa_o = rot_cvt.matrix_to_axis_angle(mat_o).reshape(B, seq, n_j*3)
-                
-                std_safe = np.maximum(val_dataset.std_pose_axis_angle, 1e-2)
-                mean_t = torch.from_numpy(val_dataset.mean_pose_axis_angle).to(device)
-                std_t = torch.from_numpy(std_safe).to(device)
-                aa_norm_o = (aa_o - mean_t) / std_t
-                
-                # Motions: retrieve normalized axis-angle ground truth
-                aa_norm_g = batch_data["pose_axis_angle"].to(device)
-                
-                # Append facial expression if present
-                if outputs.shape[-1] > opt.split_pos:
-                    outputs_for_metric = torch.cat([aa_norm_o, outputs[..., opt.split_pos:]], dim=-1)
-                    motions_for_metric = torch.cat([aa_norm_g, motions[..., opt.split_pos:]], dim=-1)
-                else:
-                    outputs_for_metric = aa_norm_o
-                    motions_for_metric = aa_norm_g
-                    
-                outputs_np = outputs_for_metric.cpu()
-                motions_np = motions_for_metric.cpu()
-            else:
-                outputs_np = outputs.cpu()
-                motions_np = motions.cpu()
-            
-            C = outputs_np.shape[-1]
-            seq = outputs_np.shape[1]
-            outputs_r = outputs_np.reshape(B, seq, C // 3, 3).numpy()
-            motions_r = motions_np.reshape(B, seq, C // 3, 3).numpy()
-            
-            diff = outputs_r - motions_r
-            diff_sq = diff ** 2
-            correct = np.sum(diff_sq, axis=3)
-            correct = np.sqrt(correct) < 0.5
-            pck_val = np.mean(correct)
-            mse_val = np.mean(diff_sq)
-            
             pck_meter.update(pck_val, B)
             mse_meter.update(mse_val, B)
             
             # Diversity (pairs within batch)
             B_div = min(B, 32)
+            outputs_r = outputs_for_eval.cpu().numpy()
             out_split = np.split(outputs_r, np.arange(B_div, B, B_div), axis=0)
             if len(out_split) >= 1 and out_split[0].shape[0] >= B_div:
                 div_val = 0.0
@@ -291,6 +277,9 @@ def main():
                         count += 1
                 if count > 0:
                     diversity_meter.update(div_val / count, 1)
+
+            if opt.max_eval_samples != -1 and pck_meter.count >= opt.max_eval_samples:
+                break
     
     elapsed = time.time() - start_time
     

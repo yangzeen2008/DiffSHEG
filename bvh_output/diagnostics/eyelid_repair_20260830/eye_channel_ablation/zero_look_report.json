@@ -1,0 +1,55 @@
+{
+  "blender_version": "5.2.1 LTS",
+  "input_blend": "F:\\study\\DiffSHEG\\assets\\face_models\\microsoft_rocketbox_female_adult_01_arkit\\rocketbox_arkit_clean_eyes.blend",
+  "render_variant": "clean_clay_clean_eyes",
+  "fps": 15,
+  "resolution": [
+    512,
+    512
+  ],
+  "frame_count": 1,
+  "duration_seconds": 0.06666666666666667,
+  "mapped_coefficients": 51,
+  "head_driver": "Bip01 Head",
+  "head_motion_scale": 0.7,
+  "head_motion_max_degrees": 22.0,
+  "eye_safety_profile": "raw",
+  "frame_start": 79,
+  "zero_channels": [
+    "eyeLookDownLeft",
+    "eyeLookDownRight",
+    "eyeLookInLeft",
+    "eyeLookInRight",
+    "eyeLookOutLeft",
+    "eyeLookOutRight",
+    "eyeLookUpLeft",
+    "eyeLookUpRight"
+  ],
+  "streams": [
+    {
+      "stream_id": "frame79",
+      "source": "F:\\study\\DiffSHEG\\bvh_output\\temporal_alignment_smoke\\render_input\\ground_truth_aligned.json",
+      "source_frame_count": 225,
+      "frame_start": 79,
+      "frame_count": 1,
+      "raw_min": 0.0,
+      "raw_max": 0.7543851137161223,
+      "clipped_low_values": 0,
+      "clipped_high_values": 0,
+      "head_pose_frames": 1,
+      "eye_safety": {
+        "profile": "raw",
+        "adjusted_frames": 0,
+        "adjusted_values": 0,
+        "max_absolute_adjustment": 0.0,
+        "channel_adjustments": {}
+      },
+      "applied_head_angle_degrees": {
+        "minimum": 4.652830303657998,
+        "maximum": 4.652830303657998,
+        "mean": 4.652830303657998
+      },
+      "frame_dir": "F:\\study\\DiffSHEG\\bvh_output\\eye_channel_ablation\\zero_look\\frame79"
+    }
+  ]
+}

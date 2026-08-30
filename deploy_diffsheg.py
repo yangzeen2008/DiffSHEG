@@ -62,6 +62,7 @@ def step_2_setup_env():
     source /root/miniconda3/etc/profile.d/conda.sh || source /opt/conda/etc/profile.d/conda.sh
     conda create -n diffsheg python=3.9 -y
     conda activate diffsheg
+    export OMP_NUM_THREADS=8
     pip install torch==2.1.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
     pip install -U openmim
     mim install mmcv-full==1.7.2
@@ -86,17 +87,22 @@ def step_4_start_training():
     cd {REMOTE_DIR}
     source /root/miniconda3/etc/profile.d/conda.sh || source /opt/conda/etc/profile.d/conda.sh
     conda activate diffsheg
+    export OMP_NUM_THREADS=8
     
     echo "1. 重新生成 141维 BVH"
     python preprocess_beat.py
     
-    echo "2. 重新提取 HuBERT 特征"
+    echo "2. 构建带版本信息的动作缓存"
+    python runner.py --dataset_name beat --n_poses 34 --mode prepare_cache --cache_splits train_val --rebuild_motion_cache
+
+    echo "3. 按动作 LMDB 索引重新提取 HuBERT 特征"
     export HF_ENDPOINT=https://hf-mirror.com
-    python build_hubert_cache.py --split all
+    python build_hubert_cache.py --split train --force
+    python build_hubert_cache.py --split val --force
     
-    echo "3. 启动训练 (nohup 后台运行)"
+    echo "4. 启动全新训练 (nohup 后台运行)"
     mkdir -p logs
-    nohup python runner.py --dataset_name beat --name beat_FM_v1 --mode train --flow_matching --fm_sample_steps 50 --n_poses 34 --batch_size 32 --no_fgd --gpu_id 0 --beat_cache_name beat_4english_15_141 --resume --workers 4 > logs/train.log 2>&1 &
+    nohup python runner.py --dataset_name beat --name beat_FM_aa_x0_aligned_sync_v1 --mode train --flow_matching --fm_expression_condition x0 --fm_solver rk4 --fm_sample_steps 50 --fm_transition_blend 4 --n_poses 34 --num_epochs 500 --batch_size 256 --lr 0.0002 --addHubert True --encode_hubert True --unidiffuser True --axis_angle True --add_vel_loss True --vel_loss_weight 100 --acc_loss_weight 50 --jerk_loss_weight 10 --x0_rec_weight 100 --grad_accum_steps 1 --diversity_loss_weight 0 --eval_every_e 10 --max_eval_samples 512 --latest_every_e 10 --save_every_e 50 --no_fgd --gpu_id 0 --beat_cache_name beat_4english_15_141_sync_v1 --seed 1234 --workers 32 --persistent_workers True --prefetch_factor 2 --non_blocking_transfer True > logs/train_beat_FM_aa_x0_aligned_sync_v1.log 2>&1 &
     
     echo "部署完成！可以登录服务器使用 'tail -f {REMOTE_DIR}/logs/train.log' 查看训练进度。"
     """

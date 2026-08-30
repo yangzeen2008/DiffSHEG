@@ -1,0 +1,151 @@
+{
+  "seed": 1234,
+  "blind": true,
+  "candidate_labels_are_randomized_per_sample": true,
+  "samples": [
+    {
+      "sample_id": "sample_01",
+      "reason": "worst_boundary",
+      "source_output_window_index": 14,
+      "source_window_file": "00014.npy",
+      "boundary_event": {
+        "output_window_index": 14,
+        "chain_index": 0,
+        "boundary_frame_in_chain": 164,
+        "coefficient": "mouthFunnel",
+        "prediction_peak_per_frame": 0.14847438037395477,
+        "ground_truth_peak_per_frame": 0.1438872069120407,
+        "abnormal_threshold_per_frame": 0.24554844444990212
+      },
+      "review_image": "bvh_output\\full_validation\\expression_blind_preflight\\sample_01\\coefficient_review.png",
+      "audio": "bvh_output\\full_validation\\expression_blind_preflight\\sample_01\\audio.wav",
+      "render_inputs": {
+        "ground_truth": "bvh_output\\full_validation\\expression_blind_preflight\\sample_01\\ground_truth.json",
+        "candidate_A": "bvh_output\\full_validation\\expression_blind_preflight\\sample_01\\candidate_A.json",
+        "candidate_B": "bvh_output\\full_validation\\expression_blind_preflight\\sample_01\\candidate_B.json"
+      }
+    },
+    {
+      "sample_id": "sample_02",
+      "reason": "worst_boundary",
+      "source_output_window_index": 16,
+      "source_window_file": "00016.npy",
+      "boundary_event": {
+        "output_window_index": 16,
+        "chain_index": 0,
+        "boundary_frame_in_chain": 184,
+        "coefficient": "browInnerUp",
+        "prediction_peak_per_frame": 0.14156854152679443,
+        "ground_truth_peak_per_frame": 0.005019590258598328,
+        "abnormal_threshold_per_frame": 0.1
+      },
+      "review_image": "bvh_output\\full_validation\\expression_blind_preflight\\sample_02\\coefficient_review.png",
+      "audio": "bvh_output\\full_validation\\expression_blind_preflight\\sample_02\\audio.wav",
+      "render_inputs": {
+        "ground_truth": "bvh_output\\full_validation\\expression_blind_preflight\\sample_02\\ground_truth.json",
+        "candidate_A": "bvh_output\\full_validation\\expression_blind_preflight\\sample_02\\candidate_A.json",
+        "candidate_B": "bvh_output\\full_validation\\expression_blind_preflight\\sample_02\\candidate_B.json"
+      }
+    },
+    {
+      "sample_id": "sample_03",
+      "reason": "worst_boundary",
+      "source_output_window_index": 81,
+      "source_window_file": "00081.npy",
+      "boundary_event": {
+        "output_window_index": 81,
+        "chain_index": 4,
+        "boundary_frame_in_chain": 34,
+        "coefficient": "eyeBlinkRight",
+        "prediction_peak_per_frame": 0.1311502456665039,
+        "ground_truth_peak_per_frame": 0.007791899144649506,
+        "abnormal_threshold_per_frame": 0.28774725329875994
+      },
+      "review_image": "bvh_output\\full_validation\\expression_blind_preflight\\sample_03\\coefficient_review.png",
+      "audio": "bvh_output\\full_validation\\expression_blind_preflight\\sample_03\\audio.wav",
+      "render_inputs": {
+        "ground_truth": "bvh_output\\full_validation\\expression_blind_preflight\\sample_03\\ground_truth.json",
+        "candidate_A": "bvh_output\\full_validation\\expression_blind_preflight\\sample_03\\candidate_A.json",
+        "candidate_B": "bvh_output\\full_validation\\expression_blind_preflight\\sample_03\\candidate_B.json"
+      }
+    },
+    {
+      "sample_id": "sample_04",
+      "reason": "worst_boundary",
+      "source_output_window_index": 35,
+      "source_window_file": "00035.npy",
+      "boundary_event": {
+        "output_window_index": 35,
+        "chain_index": 1,
+        "boundary_frame_in_chain": 174,
+        "coefficient": "mouthSmileLeft",
+        "prediction_peak_per_frame": 0.1302785873413086,
+        "ground_truth_peak_per_frame": 0.07146304845809937,
+        "abnormal_threshold_per_frame": 0.27067802345752834
+      },
+      "review_image": "bvh_output\\full_validation\\expression_blind_preflight\\sample_04\\coefficient_review.png",
+      "audio": "bvh_output\\full_validation\\expression_blind_preflight\\sample_04\\audio.wav",
+      "render_inputs": {
+        "ground_truth": "bvh_output\\full_validation\\expression_blind_preflight\\sample_04\\ground_truth.json",
+        "candidate_A": "bvh_output\\full_validation\\expression_blind_preflight\\sample_04\\candidate_A.json",
+        "candidate_B": "bvh_output\\full_validation\\expression_blind_preflight\\sample_04\\candidate_B.json"
+      }
+    },
+    {
+      "sample_id": "sample_05",
+      "reason": "fixed_random",
+      "source_output_window_index": 39,
+      "source_window_file": "00039.npy",
+      "boundary_event": null,
+      "review_image": "bvh_output\\full_validation\\expression_blind_preflight\\sample_05\\coefficient_review.png",
+      "audio": "bvh_output\\full_validation\\expression_blind_preflight\\sample_05\\audio.wav",
+      "render_inputs": {
+        "ground_truth": "bvh_output\\full_validation\\expression_blind_preflight\\sample_05\\ground_truth.json",
+        "candidate_A": "bvh_output\\full_validation\\expression_blind_preflight\\sample_05\\candidate_A.json",
+        "candidate_B": "bvh_output\\full_validation\\expression_blind_preflight\\sample_05\\candidate_B.json"
+      }
+    },
+    {
+      "sample_id": "sample_06",
+      "reason": "fixed_random",
+      "source_output_window_index": 95,
+      "source_window_file": "00095.npy",
+      "boundary_event": null,
+      "review_image": "bvh_output\\full_validation\\expression_blind_preflight\\sample_06\\coefficient_review.png",
+      "audio": "bvh_output\\full_validation\\expression_blind_preflight\\sample_06\\audio.wav",
+      "render_inputs": {
+        "ground_truth": "bvh_output\\full_validation\\expression_blind_preflight\\sample_06\\ground_truth.json",
+        "candidate_A": "bvh_output\\full_validation\\expression_blind_preflight\\sample_06\\candidate_A.json",
+        "candidate_B": "bvh_output\\full_validation\\expression_blind_preflight\\sample_06\\candidate_B.json"
+      }
+    },
+    {
+      "sample_id": "sample_07",
+      "reason": "fixed_random",
+      "source_output_window_index": 97,
+      "source_window_file": "00097.npy",
+      "boundary_event": null,
+      "review_image": "bvh_output\\full_validation\\expression_blind_preflight\\sample_07\\coefficient_review.png",
+      "audio": "bvh_output\\full_validation\\expression_blind_preflight\\sample_07\\audio.wav",
+      "render_inputs": {
+        "ground_truth": "bvh_output\\full_validation\\expression_blind_preflight\\sample_07\\ground_truth.json",
+        "candidate_A": "bvh_output\\full_validation\\expression_blind_preflight\\sample_07\\candidate_A.json",
+        "candidate_B": "bvh_output\\full_validation\\expression_blind_preflight\\sample_07\\candidate_B.json"
+      }
+    },
+    {
+      "sample_id": "sample_08",
+      "reason": "fixed_random",
+      "source_output_window_index": 98,
+      "source_window_file": "00098.npy",
+      "boundary_event": null,
+      "review_image": "bvh_output\\full_validation\\expression_blind_preflight\\sample_08\\coefficient_review.png",
+      "audio": "bvh_output\\full_validation\\expression_blind_preflight\\sample_08\\audio.wav",
+      "render_inputs": {
+        "ground_truth": "bvh_output\\full_validation\\expression_blind_preflight\\sample_08\\ground_truth.json",
+        "candidate_A": "bvh_output\\full_validation\\expression_blind_preflight\\sample_08\\candidate_A.json",
+        "candidate_B": "bvh_output\\full_validation\\expression_blind_preflight\\sample_08\\candidate_B.json"
+      }
+    }
+  ]
+}

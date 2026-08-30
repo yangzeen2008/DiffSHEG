@@ -1,0 +1,38 @@
+{
+  "label": "energetic",
+  "source_window_start": 944,
+  "window_count": 20,
+  "frames": 224,
+  "duration_seconds": 14.933333333333334,
+  "audio_rms": 0.1500108282402649,
+  "overlap_rms": {
+    "gesture_max": 0.0,
+    "expression_max": 0.0,
+    "ground_truth_max": 0.0
+  },
+  "audio_step_samples": [
+    10666,
+    10667
+  ],
+  "prediction": {
+    "velocity_rms": 1.7909796746938091,
+    "acceleration_rms": 1.5277130060179285,
+    "jerk_rms": 2.1623854940588494
+  },
+  "ground_truth": {
+    "velocity_rms": 1.8630128942790476,
+    "acceleration_rms": 1.665138651542745,
+    "jerk_rms": 2.3473821999409905
+  },
+  "ratios": {
+    "velocity": 0.9613350933821024,
+    "acceleration": 0.9174689474672321,
+    "jerk": 0.9211902067388976
+  },
+  "motion_spread_degrees": {
+    "prediction": 13.030928453438717,
+    "ground_truth": 15.513104879613126,
+    "ratio": 0.8399948659254916
+  },
+  "audio_path": "F:\\study\\DiffSHEG\\bvh_output\\long_validation_trials\\so3_release_blend5\\energetic\\audio.wav"
+}

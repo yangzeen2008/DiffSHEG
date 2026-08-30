@@ -1,0 +1,91 @@
+{
+  "segments": {
+    "quiet": {
+      "before": {
+        "excursion_p90_deg": 51.48051163808865,
+        "velocity_rms_deg_per_frame": 26.200828090311465,
+        "velocity_p95_deg_per_frame": 68.1819903592305,
+        "velocity_max_deg_per_frame": 153.12130787243913,
+        "worst_release_path_deg": 636.0018635976369,
+        "worst_release_endpoint_deg": 84.00581555812765,
+        "worst_release_detour_ratio": 7.570926600403715
+      },
+      "after": {
+        "excursion_p90_deg": 48.30112018174981,
+        "velocity_rms_deg_per_frame": 7.01684530676089,
+        "velocity_p95_deg_per_frame": 14.189103572847579,
+        "velocity_max_deg_per_frame": 42.316061061777944,
+        "worst_release_path_deg": 85.78963793662686,
+        "worst_release_endpoint_deg": 85.78963793632833,
+        "worst_release_detour_ratio": 1.0000000000034797
+      },
+      "after_over_before": {
+        "excursion_p90_deg": 0.9382408729988899,
+        "velocity_rms_deg_per_frame": 0.2678100586200776,
+        "velocity_p95_deg_per_frame": 0.20810632687736805,
+        "velocity_max_deg_per_frame": 0.2763564499921214,
+        "worst_release_path_deg": 0.1348889725752458,
+        "worst_release_endpoint_deg": 1.021234510567502,
+        "worst_release_detour_ratio": 0.13208422862667235
+      }
+    },
+    "typical": {
+      "before": {
+        "excursion_p90_deg": 93.08570615818911,
+        "velocity_rms_deg_per_frame": 33.522513632534974,
+        "velocity_p95_deg_per_frame": 73.55864152696982,
+        "velocity_max_deg_per_frame": 168.53460684640413,
+        "worst_release_path_deg": 700.9494034085685,
+        "worst_release_endpoint_deg": 18.827901874494795,
+        "worst_release_detour_ratio": 37.22928917311329
+      },
+      "after": {
+        "excursion_p90_deg": 51.86921105839438,
+        "velocity_rms_deg_per_frame": 7.118296737199612,
+        "velocity_p95_deg_per_frame": 14.109935830882302,
+        "velocity_max_deg_per_frame": 19.970214298001203,
+        "worst_release_path_deg": 84.90014739286565,
+        "worst_release_endpoint_deg": 84.90014739276162,
+        "worst_release_detour_ratio": 1.0000000000012252
+      },
+      "after_over_before": {
+        "excursion_p90_deg": 0.5572199341781675,
+        "velocity_rms_deg_per_frame": 0.2123437644094509,
+        "velocity_p95_deg_per_frame": 0.19181887454662933,
+        "velocity_max_deg_per_frame": 0.11849325590560328,
+        "worst_release_path_deg": 0.12112164869534693,
+        "worst_release_endpoint_deg": 4.509272884397785,
+        "worst_release_detour_ratio": 0.026860571937092414
+      }
+    },
+    "energetic": {
+      "before": {
+        "excursion_p90_deg": 86.59136451088378,
+        "velocity_rms_deg_per_frame": 21.319946321096385,
+        "velocity_p95_deg_per_frame": 61.11920002847374,
+        "velocity_max_deg_per_frame": 73.01052122634825,
+        "worst_release_path_deg": 305.49751400443495,
+        "worst_release_endpoint_deg": 55.893818624350196,
+        "worst_release_detour_ratio": 5.4656761968191
+      },
+      "after": {
+        "excursion_p90_deg": 62.14516002464623,
+        "velocity_rms_deg_per_frame": 8.069956062829219,
+        "velocity_p95_deg_per_frame": 16.896027921159657,
+        "velocity_max_deg_per_frame": 21.96698564998122,
+        "worst_release_path_deg": 91.7315259423132,
+        "worst_release_endpoint_deg": 91.73152594200694,
+        "worst_release_detour_ratio": 1.0000000000033387
+      },
+      "after_over_before": {
+        "excursion_p90_deg": 0.7176831128101131,
+        "velocity_rms_deg_per_frame": 0.3785167158157375,
+        "velocity_p95_deg_per_frame": 0.2764438656475914,
+        "velocity_max_deg_per_frame": 0.3008742477249116,
+        "worst_release_path_deg": 0.3002693041259299,
+        "worst_release_endpoint_deg": 1.6411747881910508,
+        "worst_release_detour_ratio": 0.18295997859977803
+      }
+    }
+  }
+}

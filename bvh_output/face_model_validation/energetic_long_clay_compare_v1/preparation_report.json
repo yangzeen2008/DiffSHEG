@@ -1,0 +1,46 @@
+{
+  "segment": "energetic",
+  "source_window_start": 944,
+  "source_window_count": 20,
+  "window_length": 34,
+  "stride": 10,
+  "overlap": 24,
+  "fps": 15,
+  "frames": 224,
+  "duration_seconds": 14.933333333333334,
+  "audio": {
+    "path": "F:\\study\\DiffSHEG\\bvh_output\\long_validation_visuals\\energetic\\audio.wav",
+    "sample_rate": 16000,
+    "samples": 238932,
+    "channels": 1,
+    "duration_seconds": 14.93325
+  },
+  "overlap_max_abs_error": {
+    "ground_truth": 0.0,
+    "prediction_blend7": 0.0
+  },
+  "ground_truth": {
+    "frames": 224,
+    "raw_min": 0.0,
+    "raw_max": 0.6688864231109619,
+    "dynamic_range_mean_p90_p10": 0.1614917516708374,
+    "velocity_rms": 0.014355299454543991,
+    "max_frame_delta": 0.153529092669487,
+    "values_below_zero": 0,
+    "values_above_one": 0
+  },
+  "prediction_blend7": {
+    "frames": 224,
+    "raw_min": -0.04184376448392868,
+    "raw_max": 0.6408377885818481,
+    "dynamic_range_mean_p90_p10": 0.09775254875421524,
+    "velocity_rms": 0.012782202963874882,
+    "max_frame_delta": 0.1336546242237091,
+    "values_below_zero": 1473,
+    "values_above_one": 0
+  },
+  "render_inputs": {
+    "ground_truth": "F:\\study\\DiffSHEG\\bvh_output\\face_model_validation\\energetic_long_clay_compare_v1\\ground_truth.json",
+    "prediction_blend7": "F:\\study\\DiffSHEG\\bvh_output\\face_model_validation\\energetic_long_clay_compare_v1\\prediction_blend7.json"
+  }
+}

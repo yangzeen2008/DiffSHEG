@@ -1,6 +1,6 @@
 # 论文动态总览
 
-> 自动生成：2026-08-29 22:48 +0800  
+> 自动生成：2026-08-30 18:17 +0800
 > 生成命令：`.\.venv\Scripts\python.exe paper-workbench\tools\workbench.py update`
 
 ## 总体状态
@@ -11,8 +11,8 @@
 | 已出现的正文组成部分 | 2 / 8 |
 | 图表组 / 图表文件 | 9 / 18 |
 | BibTeX 条目 | 1 |
-| 开放任务 / 已完成任务 | 13 / 2 |
-| 扫描的 Markdown 文件 | 14 |
+| 开放任务 / 已完成任务 | 20 / 7 |
+| 扫描的 Markdown 文件 | 22 |
 
 ## 章节雷达
 
@@ -41,6 +41,7 @@
 - [任务看板](tasks.md)
 - [主张与证据台账](claims.md)
 - [实验台账](experiments.md)
+- [决策日志](decisions.md) / [详细验证记录](records/README.md)
 - [文献台账](literature.md) / [BibTeX](references.bib)
 - [图表台账](figures.md) / [图表文件](../article/figures)
 - [写作路线](../article/thesis_roadmap.md)

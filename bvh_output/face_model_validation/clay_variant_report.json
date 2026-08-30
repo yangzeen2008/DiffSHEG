@@ -1,0 +1,101 @@
+{
+  "blender_version": "5.2.1 LTS",
+  "source_blend": "F:\\study\\DiffSHEG\\assets\\face_models\\microsoft_rocketbox_female_adult_01_arkit\\rocketbox_arkit_ready.blend",
+  "output_blend": "F:\\study\\DiffSHEG\\assets\\face_models\\microsoft_rocketbox_female_adult_01_arkit\\rocketbox_arkit_clay.blend",
+  "mesh": "f001_hipoly_81_bones_opacity",
+  "shape_key_count": 176,
+  "diffsheg_mapped_count": 51,
+  "missing_targets": [],
+  "material_replacements": {
+    "f001_body": "Clay_Hidden_Body",
+    "f001_head": "Clay_Head",
+    "f001_opacity": "Clay_Hidden_Cards"
+  },
+  "image_texture_node_count": 0,
+  "image_texture_nodes": [],
+  "image_datablock_count": 2,
+  "file_image_datablock_count": 0,
+  "viewer_image_datablock_count": 2,
+  "visibility_policy": "head material visible; clothing/body and texture-card hair hidden with Transparent BSDF",
+  "render_setup": {
+    "engine": "BLENDER_EEVEE",
+    "camera_type": "PERSP",
+    "camera_lens_mm": 85.0,
+    "camera_location": [
+      1.1920928955078125e-07,
+      -0.949052095413208,
+      1.547003149986267
+    ],
+    "exposure_ev": -1.350000023841858,
+    "head_base_color": [
+      0.11999999731779099,
+      0.11999999731779099,
+      0.11999999731779099,
+      1.0
+    ],
+    "head_roughness": 0.5799999833106995,
+    "lights": {
+      "Key_Light": {
+        "energy": 212.74815368652344,
+        "size": 0.2789355516433716,
+        "location": [
+          -0.6276048421859741,
+          -0.7049835324287415,
+          2.017706871032715
+        ]
+      },
+      "Fill_Light": {
+        "energy": 15.196296691894531,
+        "size": 0.5230041742324829,
+        "location": [
+          0.5578712224960327,
+          -0.3911810517311096,
+          1.634170413017273
+        ]
+      },
+      "Rim_Light": {
+        "energy": 54.706668853759766,
+        "size": 0.31380248069763184,
+        "location": [
+          0.34866955876350403,
+          0.6896941661834717,
+          1.9131059646606445
+        ]
+      }
+    }
+  },
+  "renders": [
+    {
+      "preset": "neutral",
+      "values": {},
+      "output": "F:\\study\\DiffSHEG\\bvh_output\\face_model_validation\\clay_expression_smoke\\neutral.png"
+    },
+    {
+      "preset": "smile",
+      "values": {
+        "AK_07_CheekSquintLeft": 0.22,
+        "AK_08_CheekSquintRight": 0.22,
+        "AK_44_MouthSmileLeft": 0.78,
+        "AK_45_MouthSmileRight": 0.78
+      },
+      "output": "F:\\study\\DiffSHEG\\bvh_output\\face_model_validation\\clay_expression_smoke\\smile.png"
+    },
+    {
+      "preset": "jaw_open",
+      "values": {
+        "AK_25_JawOpen": 0.68,
+        "AK_32_MouthFunnel": 0.18
+      },
+      "output": "F:\\study\\DiffSHEG\\bvh_output\\face_model_validation\\clay_expression_smoke\\jaw_open.png"
+    },
+    {
+      "preset": "blink_brow",
+      "values": {
+        "AK_03_BrowInnerUp": 0.35,
+        "AK_09_EyeBlinkLeft": 0.88,
+        "AK_10_EyeBlinkRight": 0.88
+      },
+      "output": "F:\\study\\DiffSHEG\\bvh_output\\face_model_validation\\clay_expression_smoke\\blink_brow.png"
+    }
+  ]
+}

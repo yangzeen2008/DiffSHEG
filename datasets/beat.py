@@ -9,7 +9,9 @@ import lmdb as lmdb
 import pandas as pd
 import torch
 import glob
+import hashlib
 import json
+import uuid
 from termcolor import colored
 from loguru import logger
 from collections import defaultdict
@@ -22,10 +24,28 @@ import librosa
 import datasets.rotation_converter as rot_cvt
 import torch.nn.functional as F
 import pickle
+from utils.hubert import HUBERT_CACHE_VERSION
+from utils.cache_versions import (
+    ALIGNED_FACIAL_FPS,
+    ALIGNED_POSE_FPS,
+    MOTION_CACHE_VERSION,
+    MOTION_MANIFEST_NAME,
+    MOTION_STD_FLOOR,
+    TEMPORAL_ALIGNMENT_VERSION,
+    TEMPORAL_MANIFEST_NAME,
+)
 
 
 class BeatDataset(Dataset):
-    def __init__(self, args, loader_type, augmentation=None, kwargs=None, build_cache=True):
+    def __init__(
+        self,
+        args,
+        loader_type,
+        augmentation=None,
+        kwargs=None,
+        build_cache=True,
+        validate_hubert=True,
+    ):
         self.opt = args
         self.loader_type = loader_type
         # self.rank = dist.get_rank()
@@ -36,6 +56,9 @@ class BeatDataset(Dataset):
         self.pose_dims = args.dim_pose # 141
 
         self.speaker_dims = args.speaker_dim
+        self.motion_cache_legacy = False
+        self.motion_cache_id = None
+        self.hubert_manifest = None
         self.loader_type = loader_type
         self.audio_rep = 'wave16k'
         self.pose_rep = 'bvh_rot'
@@ -63,6 +86,10 @@ class BeatDataset(Dataset):
         else:
             self.data_dir = args.test_data_path
             self.multi_length_training = [1.0]
+        self.temporal_manifest = self._load_temporal_manifest()
+        self.temporal_alignment_valid = self._temporal_manifest_is_valid(
+            self.temporal_manifest
+        )
       
         self.max_length = int(self.pose_length * self.multi_length_training[-1])
     
@@ -132,7 +159,281 @@ class BeatDataset(Dataset):
 
 
             with self.lmdb_env.begin() as txn:
-                self.n_samples = txn.stat()["entries"]    
+                self.n_samples = txn.stat()["entries"]
+
+            self._validate_motion_manifest(preloaded_dir)
+
+            if (
+                validate_hubert
+                and
+                (args.use_aud_feat or self.opt.expAddHubert or self.opt.addHubert)
+                and self.opt.mode != "test_custom_audio"
+            ):
+                manifest_path = os.path.join(self.aud_feat_path, "manifest.json")
+                manifest = None
+                if os.path.exists(manifest_path):
+                    with open(manifest_path, "r", encoding="utf-8") as manifest_file:
+                        manifest = json.load(manifest_file)
+                if (
+                    not manifest
+                    or manifest.get("cache_version") != HUBERT_CACHE_VERSION
+                    or manifest.get("sample_count") != self.n_samples
+                    or (
+                        manifest.get("source_motion_cache_version") != MOTION_CACHE_VERSION
+                        and not self.motion_cache_legacy
+                    )
+                    or (
+                        manifest.get("source_motion_cache_id") != self.motion_cache_id
+                        and not self.motion_cache_legacy
+                    )
+                ):
+                    raise RuntimeError(
+                        "HuBERT cache is legacy or misaligned with the dataset LMDB. "
+                        f"Rebuild it with: python build_hubert_cache.py --split {loader_type} --force"
+                    )
+                self.hubert_manifest = manifest
+
+        self._configure_motion_statistics()
+        self._record_cache_contract()
+
+
+    def _load_temporal_manifest(self):
+        path = os.path.join(self.data_dir, TEMPORAL_MANIFEST_NAME)
+        if not os.path.exists(path):
+            return None
+        with open(path, "r", encoding="utf-8") as manifest_file:
+            return json.load(manifest_file)
+
+
+    def _temporal_manifest_is_valid(self, manifest):
+        if not manifest or not isinstance(manifest, dict):
+            return False
+        manifest_id = manifest.get("manifest_id")
+        payload = dict(manifest)
+        payload.pop("manifest_id", None)
+        canonical = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+        expected_id = hashlib.sha256(canonical).hexdigest()
+        return (
+            manifest.get("temporal_alignment_version") == TEMPORAL_ALIGNMENT_VERSION
+            and manifest.get("target_pose_fps") == ALIGNED_POSE_FPS
+            and manifest.get("target_facial_fps") == ALIGNED_FACIAL_FPS
+            and manifest.get("audio_sample_rate") == self.audio_fps
+            and manifest.get("target_pose_fps") == self.pose_fps
+            and isinstance(manifest.get("clip_count"), int)
+            and manifest.get("clip_count") > 0
+            and isinstance(manifest_id, str)
+            and manifest_id == expected_id
+        )
+
+
+    def _require_temporal_alignment(self):
+        if self.temporal_alignment_valid:
+            return
+        raise RuntimeError(
+            "BEAT source data has no valid 15 FPS cross-modal timeline manifest. "
+            "The legacy cache paired 120 FPS BVH and 60 FPS facial frames with "
+            "15 FPS audio windows. Rebuild source data with preprocess_beat.py "
+            "into a new beat_4english_15_141_sync_v1 cache before building LMDB."
+        )
+
+
+    def _record_cache_contract(self):
+        if self.motion_cache_id:
+            motion_ids = dict(getattr(self.opt, "motion_cache_ids", {}))
+            motion_ids[self.loader_type] = self.motion_cache_id
+            self.opt.motion_cache_ids = motion_ids
+        if self.hubert_manifest:
+            hubert_bindings = dict(getattr(self.opt, "hubert_cache_bindings", {}))
+            hubert_bindings[self.loader_type] = {
+                "cache_version": self.hubert_manifest.get("cache_version"),
+                "sample_count": self.hubert_manifest.get("sample_count"),
+                "source_motion_cache_id": self.hubert_manifest.get("source_motion_cache_id"),
+            }
+            self.opt.hubert_cache_bindings = hubert_bindings
+
+
+    def _motion_manifest_payload(self, sample_count):
+        temporal = self.temporal_manifest or {}
+        return {
+            "cache_version": MOTION_CACHE_VERSION,
+            "sample_count": int(sample_count),
+            "split": self.loader_type,
+            "pose_length": "full" if self.loader_type == "test" else int(self.pose_length),
+            "stride": "full" if self.loader_type == "test" else int(self.ori_stride),
+            "pose_rep": self.pose_rep,
+            "axis_angle_std_floor": MOTION_STD_FLOOR,
+            "temporal_alignment_version": temporal.get("temporal_alignment_version"),
+            "temporal_manifest_id": temporal.get("manifest_id"),
+            "target_pose_fps": temporal.get("target_pose_fps"),
+            "target_facial_fps": temporal.get("target_facial_fps"),
+            "audio_sample_rate": temporal.get("audio_sample_rate"),
+        }
+
+
+    def _write_motion_manifest(self, preloaded_dir, audit=None):
+        self._require_temporal_alignment()
+        if hasattr(self, "n_samples"):
+            sample_count = self.n_samples
+        else:
+            environment = lmdb.open(preloaded_dir, readonly=True, lock=False)
+            with environment.begin(write=False) as transaction:
+                sample_count = transaction.stat()["entries"]
+            environment.close()
+        payload = self._motion_manifest_payload(sample_count)
+        payload["cache_id"] = uuid.uuid4().hex
+        if audit is not None:
+            payload["adoption_audit"] = audit
+        manifest_path = os.path.join(preloaded_dir, MOTION_MANIFEST_NAME)
+        with open(manifest_path, "w", encoding="utf-8") as manifest_file:
+            json.dump(payload, manifest_file, indent=2)
+        return payload
+
+
+    def _audit_motion_cache_for_adoption(self, preloaded_dir):
+        logger.warning("Fully auditing legacy motion cache before adoption: {}", preloaded_dir)
+        environment = getattr(self, "lmdb_env", None)
+        owns_environment = environment is None
+        if owns_environment:
+            environment = lmdb.open(preloaded_dir, readonly=True, lock=False, readahead=False)
+        total_squares = 0.0
+        total_values = 0
+        max_abs = 0.0
+        try:
+            with environment.begin(write=False) as transaction:
+                sample_count = transaction.stat()["entries"]
+                for index in range(sample_count):
+                    value = transaction.get(f"{index:05d}".encode("ascii"))
+                    if value is None:
+                        raise RuntimeError(f"Motion cache key {index:05d} is missing")
+                    sample = pickle.loads(value)
+                    if not isinstance(sample, (tuple, list)) or len(sample) != 9:
+                        raise RuntimeError(f"Motion cache sample {index:05d} has invalid schema")
+                    pose = np.asarray(sample[1], dtype=np.float32)
+                    facial = np.asarray(sample[4], dtype=np.float32)
+                    if self.loader_type != "test" and pose.shape != (self.pose_length, self.pose_dims):
+                        raise RuntimeError(
+                            f"Motion cache sample {index:05d} pose shape {pose.shape}; "
+                            f"expected {(self.pose_length, self.pose_dims)}"
+                        )
+                    if facial.shape[0] != pose.shape[0]:
+                        raise RuntimeError(
+                            f"Motion cache sample {index:05d} facial length does not match pose"
+                        )
+                    if not np.isfinite(pose).all() or not np.isfinite(facial).all():
+                        raise RuntimeError(f"Motion cache sample {index:05d} contains NaN or Inf")
+                    max_abs = max(max_abs, float(np.max(np.abs(pose))))
+                    pose64 = pose.astype(np.float64, copy=False)
+                    total_squares += float(np.sum(pose64 * pose64))
+                    total_values += pose.size
+        finally:
+            if owns_environment:
+                environment.close()
+        rms = (total_squares / max(total_values, 1)) ** 0.5
+        if rms > 10.0 or max_abs > 100.0:
+            raise RuntimeError(
+                f"Legacy motion cache failed adoption audit: RMS={rms:.4f}, "
+                f"max_abs={max_abs:.4f}. Rebuild it instead."
+            )
+        return {
+            "scope": "all_samples",
+            "sample_count": sample_count,
+            "motion_rms": rms,
+            "motion_max_abs": max_abs,
+        }
+
+
+    def _validate_motion_manifest(self, preloaded_dir):
+        manifest_path = os.path.join(preloaded_dir, MOTION_MANIFEST_NAME)
+        manifest = None
+        if os.path.exists(manifest_path):
+            with open(manifest_path, "r", encoding="utf-8") as manifest_file:
+                manifest = json.load(manifest_file)
+        expected = self._motion_manifest_payload(self.n_samples)
+        fields = (
+            "cache_version",
+            "sample_count",
+            "split",
+            "pose_length",
+            "stride",
+            "pose_rep",
+            "axis_angle_std_floor",
+            "temporal_alignment_version",
+            "temporal_manifest_id",
+            "target_pose_fps",
+            "target_facial_fps",
+            "audio_sample_rate",
+        )
+        is_current = (
+            self.temporal_alignment_valid
+            and
+            bool(manifest)
+            and isinstance(manifest.get("cache_id"), str)
+            and bool(manifest.get("cache_id"))
+            and all(manifest.get(field) == expected[field] for field in fields)
+        )
+        if is_current:
+            self.motion_cache_id = manifest["cache_id"]
+            return
+        if getattr(self.opt, "adopt_motion_cache", False):
+            self._require_temporal_alignment()
+            audit = self._audit_motion_cache_for_adoption(preloaded_dir)
+            payload = self._write_motion_manifest(preloaded_dir, audit=audit)
+            self.motion_cache_id = payload["cache_id"]
+            logger.info("Adopted versioned BEAT motion cache: {}", preloaded_dir)
+            return
+        if getattr(self.opt, "allow_legacy_motion_cache", False):
+            self.motion_cache_legacy = True
+            logger.warning(
+                "Using an unversioned/legacy BEAT motion cache for diagnostics only: {}",
+                preloaded_dir,
+            )
+            return
+        raise RuntimeError(
+            "BEAT motion cache is legacy or uses incompatible normalization/time alignment. "
+            "First rebuild aligned source data with preprocess_beat.py, then rebuild LMDB "
+            "with: python runner.py --dataset_name beat "
+            "--beat_cache_name beat_4english_15_141_sync_v1 --n_poses 34 "
+            "--mode prepare_cache --cache_splits "
+            f"{self.loader_type} --rebuild_motion_cache"
+        )
+
+
+    def _configure_motion_statistics(self):
+        axis_std = (
+            self.std_pose_axis_angle
+            if self.motion_cache_legacy
+            else np.maximum(self.std_pose_axis_angle, MOTION_STD_FLOOR)
+        )
+        self.axis_angle_std_for_cache = axis_std
+        if self.opt.expression_only or self.opt.gesCondition_expression_only:
+            self.motion_std = self.std_facial
+            self.motion_mean = self.mean_facial
+        elif self.opt.gesture_only or self.opt.expCondition_gesture_only:
+            if getattr(self.opt, 'rot_6d', False):
+                n_joints = len(self.mean_pose_axis_angle) // 3
+                self.motion_std = np.ones(n_joints * 6, dtype=np.float32)
+                self.motion_mean = np.zeros(n_joints * 6, dtype=np.float32)
+            elif self.opt.axis_angle:
+                self.motion_std = axis_std
+                self.motion_mean = self.mean_pose_axis_angle
+            else:
+                self.motion_std = self.std_pose
+                self.motion_mean = self.mean_pose
+        else:
+            if getattr(self.opt, 'rot_6d', False):
+                n_joints = len(self.mean_pose_axis_angle) // 3
+                ges_std = np.ones(n_joints * 6, dtype=np.float32)
+                ges_mean = np.zeros(n_joints * 6, dtype=np.float32)
+                self.motion_std = np.concatenate((ges_std, self.std_facial), axis=-1)
+                self.motion_mean = np.concatenate((ges_mean, self.mean_facial), axis=-1)
+            elif self.opt.axis_angle:
+                self.motion_std = np.concatenate((axis_std, self.std_facial), axis=-1)
+                self.motion_mean = np.concatenate((self.mean_pose_axis_angle, self.mean_facial), axis=-1)
+            else:
+                self.motion_std = np.concatenate((self.std_pose, self.std_facial), axis=-1)
+                self.motion_mean = np.concatenate((self.mean_pose, self.mean_facial), axis=-1)
         
             
     def build_cache(self, preloaded_dir):
@@ -145,6 +446,7 @@ class BeatDataset(Dataset):
             if os.path.exists(preloaded_dir):
                 shutil.rmtree(preloaded_dir)
 
+        cache_generated = False
         if os.path.exists(preloaded_dir):
             logger.info("Found the cache {}".format(preloaded_dir))
         elif self.loader_type == "test":
@@ -152,11 +454,15 @@ class BeatDataset(Dataset):
                 preloaded_dir, True, 
                 0, 0,
                 is_test=True)
+            cache_generated = True
         else: 
             self.cache_generation(
                 preloaded_dir, self.disable_filtering, 
                 self.clean_first_seconds, self.clean_final_seconds,
                 is_test=False)
+            cache_generated = True
+        if cache_generated:
+            self._write_motion_manifest(preloaded_dir)
         
     
     def __len__(self):
@@ -165,6 +471,10 @@ class BeatDataset(Dataset):
     def cache_generation(self, out_lmdb_dir, disable_filtering, clean_first_seconds,  clean_final_seconds, is_test=False):
         self.n_out_samples = 0
         pose_files = sorted(glob.glob(os.path.join(self.data_dir, f"{self.pose_rep}") + "/*.bvh"), key=str,)  
+        if not pose_files:
+            raise FileNotFoundError(
+                f"No source BVH files found under {os.path.join(self.data_dir, self.pose_rep)}"
+            )
         # create db for samples
         map_size = int(1024 * 1024 * 2048 * (self.audio_fps/16000)**3 * 4) * (len(pose_files)/30*(self.pose_fps/15)) * len(self.multi_length_training) * self.multi_length_training[-1] * 2 # in 1024 MB
         map_size = min(map_size, 1024 * 1024 * 1024 * 20)  # 最大 20 GB，兼容 Windows
@@ -430,7 +740,7 @@ class BeatDataset(Dataset):
         # Clamp near-zero std to avoid exploding values for near-static joints.
         # 20 axis-angle dims have std ~1e-8 (static joints); 1e-2 is safely
         # below the 21st-smallest std (0.0088) so only truly static dims are affected.
-        std_safe = np.maximum(std_pose, 1e-2)
+        std_safe = np.maximum(std_pose, MOTION_STD_FLOOR)
         return (dir_vec - mean_pose) / std_safe 
     
     def __getitem__(self, idx):
@@ -461,7 +771,7 @@ class BeatDataset(Dataset):
         # Denorm axis_angle, convert to 6D (no normalize needed for 6D).
         if getattr(self.opt, 'rot_6d', False):
             # Denormalize axis_angle back to raw values
-            aa_raw = tar_pose_axis_angle * torch.from_numpy(self.std_pose_axis_angle).float() \
+            aa_raw = tar_pose_axis_angle * torch.from_numpy(self.axis_angle_std_for_cache).float() \
                    + torch.from_numpy(self.mean_pose_axis_angle).float()
             T = aa_raw.shape[0]
             n_joints = aa_raw.shape[-1] // 3

@@ -1,0 +1,270 @@
+/root/miniconda3/envs/diffsheg/lib/python3.9/site-packages/mmcv/__init__.py:20: UserWarning: On January 1, 2023, MMCV will release v2.0.0, in which it will remove components related to the training process and add a data transformation module. In addition, it will rename the package names mmcv to mmcv-lite and mmcv-full to mmcv. See https://github.com/open-mmlab/mmcv/blob/master/docs/en/compatibility.md for more details.
+  warnings.warn(
+2026-08-30 18:07:33.142 | INFO     | datasets.beat:build_cache:440 - Audio bit rate: 16000
+2026-08-30 18:07:33.143 | INFO     | datasets.beat:build_cache:441 - Reading data 'data/BEAT/beat_cache/beat_4english_15_141_sync_v1/train/'...
+2026-08-30 18:07:33.143 | INFO     | datasets.beat:build_cache:444 - Creating the dataset cache...
+2026-08-30 18:07:33.143 | INFO     | datasets.beat:build_cache:451 - Found the cache data/BEAT/beat_cache/beat_4english_15_141_sync_v1/train/bvh_rot_cache_len34_stride10
+2026-08-30 18:07:33.144 | INFO     | datasets.beat:build_cache:440 - Audio bit rate: 16000
+2026-08-30 18:07:33.145 | INFO     | datasets.beat:build_cache:441 - Reading data 'data/BEAT/beat_cache/beat_4english_15_141_sync_v1/val/'...
+2026-08-30 18:07:33.145 | INFO     | datasets.beat:build_cache:444 - Creating the dataset cache...
+2026-08-30 18:07:33.145 | INFO     | datasets.beat:build_cache:451 - Found the cache data/BEAT/beat_cache/beat_4english_15_141_sync_v1/val/bvh_rot_cache_len34_stride10
+------------ Options -------------
+ExprID_off: False
+ExprID_off_uncond: False
+PE: pe_sinu
+ablation: None
+acc_loss_weight: 50.0
+addBlend: True
+addEmoCond: False
+addHubert: True
+addTextCond: False
+addWav2Vec2: False
+add_vel_loss: True
+adopt_motion_cache: False
+allow_legacy_checkpoint: False
+allow_legacy_motion_cache: False
+allow_partial_checkpoint: False
+audio_dim: 128
+audio_feat: mel
+audio_latent_dim: 256
+auto_overlap: True
+axis_angle: True
+batch_size: 256
+beat_cache_name: beat_4english_15_141_sync_v1
+cache_splits: train_val
+checkpoints_dir: ./checkpoints
+ckpt: latest.tar
+classifier_free: False
+cond_projection: mlp_includeX
+cond_residual: True
+cond_scale: 1.0
+data_mode: original
+data_parallel: False
+data_root: ./Freeform/processed_data_200
+data_sel: upperbody
+data_type: pos
+dataset_name: beat
+ddim: False
+debug: True
+decomp_name: Decomp_SP001_SM001_H512
+deterministic: False
+diffusion_steps: 1000
+dim_att_vec: 512
+dim_dec_hidden: 1024
+dim_movement_dec_hidden: 512
+dim_movement_enc_hidden: 512
+dim_movement_latent: 512
+dim_pos_hidden: 1024
+dim_pri_hidden: 1024
+dim_text_hidden: 512
+dim_z: 128
+dist_backend: nccl
+dist_url: tcp://224.66.41.62:23456
+distributed: False
+diversity_loss_weight: 0.0
+embed_net_path: feature_extractor/gesture_autoencoder_checkpoint_best.bin
+encode_hubert: True
+encode_wav2vec2: False
+eval_every_e: 1
+expAddHubert: False
+expCondition_gesture_only: None
+expr_weight: 1
+expression_only: False
+feat_bias: 5
+fix_head_var: False
+fix_very_first: False
+flow_matching: True
+fm_expression_condition: x0
+fm_sample_steps: 50
+fm_solver: rk4
+fm_transition_blend: 4
+gesCondition_expression_only: False
+gesture_only: False
+gpu_id: 0
+grad_accum_steps: 1
+hidden_size_override: 0
+is_train: True
+jerk_loss_weight: 10.0
+jump_length: 3
+jump_n_sample: 5
+latent_dim: 512
+latest_every_e: 1
+log_every: 50
+lr: 0.0002
+max_eval_samples: 256
+mode: train
+model_base: transformer_encoder
+model_mean_type: epsilon
+multiprocessing_distributed: False
+n_layer_override: 0
+n_layers_dec: 1
+n_layers_pos: 1
+n_layers_pri: 1
+n_poses: 34
+name: beat_FM_aa_x0_aligned_sync_smoke_v1
+no_clip: False
+no_eff: False
+no_fgd: True
+no_repaint: False
+no_resample: False
+no_style: False
+non_blocking_transfer: True
+null_cond_prob: 0.2
+num_epochs: 2
+num_layers: 8
+ortho_loss_weight: 0.01
+output_gt: False
+overlap_len: 0
+persistent_workers: False
+prefetch_factor: 2
+rank: 0
+rebuild_motion_cache: False
+rebuttal: None
+remove_audio: False
+remove_hand: False
+remove_style: False
+rename: None
+reset_lr: False
+resume: False
+rot_6d: False
+same_overlap_noisy: False
+save_every_e: 10
+save_latest: 500
+seed: 1234
+separate: None
+separate_pure: False
+sequential_test_windows: False
+style_dim: 4
+test_audio_path: None
+test_on_trainset: False
+test_on_val: False
+test_result_tag: None
+test_window_ranges: None
+textExpEmoCondition_gesture_only: False
+times: 1
+timestep_respacing: ddim1000
+unidiffuser: True
+usePredExpr: None
+use_aud_feat: None
+use_joints: False
+use_single_style: False
+vel_interval: 10
+vel_loss_start: -1
+vel_loss_weight: 100.0
+visualize_unify_x0_step: None
+workers: 4
+world_size: 1
+x0_rec_weight: 100.0
+-------------- End ----------------
+Use GPU: 0
+=> creating model 'transformer_encoder'
+BEAT preflight passed: 8 samples, motion RMS=0.9414, max_abs=10.7258
+Start training ...
+0it [00:00, ?it/s]
+FM sampling:   0%|          | 0/50 [00:00<?, ?it/s][A
+FM sampling:   2%|▏         | 1/50 [00:00<00:10,  4.50it/s][A
+FM sampling:   4%|▍         | 2/50 [00:00<00:10,  4.50it/s][A
+FM sampling:   6%|▌         | 3/50 [00:00<00:10,  4.54it/s][A
+FM sampling:   8%|▊         | 4/50 [00:00<00:10,  4.55it/s][A
+FM sampling:  10%|█         | 5/50 [00:01<00:09,  4.55it/s][A
+FM sampling:  12%|█▏        | 6/50 [00:01<00:09,  4.55it/s][A
+FM sampling:  14%|█▍        | 7/50 [00:01<00:09,  4.55it/s][A
+FM sampling:  16%|█▌        | 8/50 [00:01<00:09,  4.55it/s][A
+FM sampling:  18%|█▊        | 9/50 [00:01<00:09,  4.53it/s][A
+FM sampling:  20%|██        | 10/50 [00:02<00:08,  4.54it/s][A
+FM sampling:  22%|██▏       | 11/50 [00:02<00:08,  4.55it/s][A
+FM sampling:  24%|██▍       | 12/50 [00:02<00:08,  4.55it/s][A
+FM sampling:  26%|██▌       | 13/50 [00:02<00:08,  4.55it/s][A
+FM sampling:  28%|██▊       | 14/50 [00:03<00:07,  4.55it/s][A
+FM sampling:  30%|███       | 15/50 [00:03<00:07,  4.56it/s][A
+FM sampling:  32%|███▏      | 16/50 [00:03<00:07,  4.56it/s][A
+FM sampling:  34%|███▍      | 17/50 [00:03<00:07,  4.56it/s][A
+FM sampling:  36%|███▌      | 18/50 [00:03<00:07,  4.56it/s][A
+FM sampling:  38%|███▊      | 19/50 [00:04<00:06,  4.55it/s][A
+FM sampling:  40%|████      | 20/50 [00:04<00:06,  4.55it/s][A
+FM sampling:  42%|████▏     | 21/50 [00:04<00:06,  4.55it/s][A
+FM sampling:  44%|████▍     | 22/50 [00:04<00:06,  4.55it/s][A
+FM sampling:  46%|████▌     | 23/50 [00:05<00:05,  4.55it/s][A
+FM sampling:  48%|████▊     | 24/50 [00:05<00:05,  4.55it/s][A
+FM sampling:  50%|█████     | 25/50 [00:05<00:05,  4.55it/s][A
+FM sampling:  52%|█████▏    | 26/50 [00:05<00:05,  4.54it/s][A
+FM sampling:  54%|█████▍    | 27/50 [00:05<00:05,  4.54it/s][A
+FM sampling:  56%|█████▌    | 28/50 [00:06<00:04,  4.54it/s][A
+FM sampling:  58%|█████▊    | 29/50 [00:06<00:04,  4.54it/s][A
+FM sampling:  60%|██████    | 30/50 [00:06<00:04,  4.54it/s][A
+FM sampling:  62%|██████▏   | 31/50 [00:06<00:04,  4.54it/s][A
+FM sampling:  64%|██████▍   | 32/50 [00:07<00:03,  4.54it/s][A
+FM sampling:  66%|██████▌   | 33/50 [00:07<00:03,  4.55it/s][A
+FM sampling:  68%|██████▊   | 34/50 [00:07<00:03,  4.55it/s][A
+FM sampling:  70%|███████   | 35/50 [00:07<00:03,  4.55it/s][A
+FM sampling:  72%|███████▏  | 36/50 [00:07<00:03,  4.55it/s][A
+FM sampling:  74%|███████▍  | 37/50 [00:08<00:02,  4.55it/s][A
+FM sampling:  76%|███████▌  | 38/50 [00:08<00:02,  4.55it/s][A
+FM sampling:  78%|███████▊  | 39/50 [00:08<00:02,  4.55it/s][A
+FM sampling:  80%|████████  | 40/50 [00:08<00:02,  4.55it/s][A
+FM sampling:  82%|████████▏ | 41/50 [00:09<00:01,  4.55it/s][A
+FM sampling:  84%|████████▍ | 42/50 [00:09<00:01,  4.55it/s][A
+FM sampling:  86%|████████▌ | 43/50 [00:09<00:01,  4.55it/s][A
+FM sampling:  88%|████████▊ | 44/50 [00:09<00:01,  4.55it/s][A
+FM sampling:  90%|█████████ | 45/50 [00:09<00:01,  4.55it/s][A
+FM sampling:  92%|█████████▏| 46/50 [00:10<00:00,  4.54it/s][A
+FM sampling:  94%|█████████▍| 47/50 [00:10<00:00,  4.54it/s][A
+FM sampling:  96%|█████████▌| 48/50 [00:10<00:00,  4.55it/s][A
+FM sampling:  98%|█████████▊| 49/50 [00:10<00:00,  4.55it/s][A
+FM sampling: 100%|██████████| 50/50 [00:10<00:00,  4.54it/s][AFM sampling: 100%|██████████| 50/50 [00:10<00:00,  4.55it/s]
+0it [00:11, ?it/s]
+[Validation]: Epoch: 0, MSE: 1.2364692687988281, PCK: 0.599932074546814, SRGR: 0.5957484786591042, Diversity: 1.2209159584629292
+0it [00:00, ?it/s]
+FM sampling:   0%|          | 0/50 [00:00<?, ?it/s][A
+FM sampling:   2%|▏         | 1/50 [00:00<00:10,  4.74it/s][A
+FM sampling:   4%|▍         | 2/50 [00:00<00:10,  4.56it/s][A
+FM sampling:   6%|▌         | 3/50 [00:00<00:10,  4.53it/s][A
+FM sampling:   8%|▊         | 4/50 [00:00<00:10,  4.49it/s][A
+FM sampling:  10%|█         | 5/50 [00:01<00:10,  4.50it/s][A
+FM sampling:  12%|█▏        | 6/50 [00:01<00:09,  4.50it/s][A
+FM sampling:  14%|█▍        | 7/50 [00:01<00:09,  4.50it/s][A
+FM sampling:  16%|█▌        | 8/50 [00:01<00:09,  4.50it/s][A
+FM sampling:  18%|█▊        | 9/50 [00:01<00:09,  4.50it/s][A
+FM sampling:  20%|██        | 10/50 [00:02<00:08,  4.49it/s][A
+FM sampling:  22%|██▏       | 11/50 [00:02<00:08,  4.49it/s][A
+FM sampling:  24%|██▍       | 12/50 [00:02<00:08,  4.49it/s][A
+FM sampling:  26%|██▌       | 13/50 [00:02<00:08,  4.50it/s][A
+FM sampling:  28%|██▊       | 14/50 [00:03<00:08,  4.50it/s][A
+FM sampling:  30%|███       | 15/50 [00:03<00:07,  4.50it/s][A
+FM sampling:  32%|███▏      | 16/50 [00:03<00:07,  4.50it/s][A
+FM sampling:  34%|███▍      | 17/50 [00:03<00:07,  4.50it/s][A
+FM sampling:  36%|███▌      | 18/50 [00:03<00:07,  4.50it/s][A
+FM sampling:  38%|███▊      | 19/50 [00:04<00:06,  4.49it/s][A
+FM sampling:  40%|████      | 20/50 [00:04<00:06,  4.50it/s][A
+FM sampling:  42%|████▏     | 21/50 [00:04<00:06,  4.50it/s][A
+FM sampling:  44%|████▍     | 22/50 [00:04<00:06,  4.50it/s][A
+FM sampling:  46%|████▌     | 23/50 [00:05<00:06,  4.50it/s][A
+FM sampling:  48%|████▊     | 24/50 [00:05<00:05,  4.50it/s][A
+FM sampling:  50%|█████     | 25/50 [00:05<00:05,  4.49it/s][A
+FM sampling:  52%|█████▏    | 26/50 [00:05<00:05,  4.49it/s][A
+FM sampling:  54%|█████▍    | 27/50 [00:06<00:05,  4.49it/s][A
+FM sampling:  56%|█████▌    | 28/50 [00:06<00:04,  4.49it/s][A
+FM sampling:  58%|█████▊    | 29/50 [00:06<00:04,  4.49it/s][A
+FM sampling:  60%|██████    | 30/50 [00:06<00:04,  4.49it/s][A
+FM sampling:  62%|██████▏   | 31/50 [00:06<00:04,  4.49it/s][A
+FM sampling:  64%|██████▍   | 32/50 [00:07<00:04,  4.49it/s][A
+FM sampling:  66%|██████▌   | 33/50 [00:07<00:03,  4.49it/s][A
+FM sampling:  68%|██████▊   | 34/50 [00:07<00:03,  4.49it/s][A
+FM sampling:  70%|███████   | 35/50 [00:07<00:03,  4.49it/s][A
+FM sampling:  72%|███████▏  | 36/50 [00:08<00:03,  4.48it/s][A
+FM sampling:  74%|███████▍  | 37/50 [00:08<00:02,  4.48it/s][A
+FM sampling:  76%|███████▌  | 38/50 [00:08<00:02,  4.48it/s][A
+FM sampling:  78%|███████▊  | 39/50 [00:08<00:02,  4.48it/s][A
+FM sampling:  80%|████████  | 40/50 [00:08<00:02,  4.48it/s][A
+FM sampling:  82%|████████▏ | 41/50 [00:09<00:02,  4.48it/s][A
+FM sampling:  84%|████████▍ | 42/50 [00:09<00:01,  4.48it/s][A
+FM sampling:  86%|████████▌ | 43/50 [00:09<00:01,  4.48it/s][A
+FM sampling:  88%|████████▊ | 44/50 [00:09<00:01,  4.48it/s][A
+FM sampling:  90%|█████████ | 45/50 [00:10<00:01,  4.47it/s][A
+FM sampling:  92%|█████████▏| 46/50 [00:10<00:00,  4.47it/s][A
+FM sampling:  94%|█████████▍| 47/50 [00:10<00:00,  4.48it/s][A
+FM sampling:  96%|█████████▌| 48/50 [00:10<00:00,  4.47it/s][A
+FM sampling:  98%|█████████▊| 49/50 [00:10<00:00,  4.44it/s][A
+FM sampling: 100%|██████████| 50/50 [00:11<00:00,  4.43it/s][AFM sampling: 100%|██████████| 50/50 [00:11<00:00,  4.49it/s]
+0it [00:11, ?it/s]
+[Validation]: Epoch: 1, MSE: 1.1731873750686646, PCK: 0.6085267663002014, SRGR: 0.6034765775188254, Diversity: 1.220083517969871

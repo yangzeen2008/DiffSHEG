@@ -1,0 +1,173 @@
+{
+  "controlled_variables": {
+    "checkpoint": "pck_best.tar e479",
+    "solver": "RK4 50 steps",
+    "overlap": 24,
+    "ranges": "3571:20,3799:20,944:20",
+    "changed_only": "fm_transition_blend"
+  },
+  "segments": {
+    "quiet": {
+      "blend0": {
+        "velocity_ratio_to_gt": 1.0676666250898805,
+        "acceleration_ratio_to_gt": 1.2836075602977934,
+        "jerk_ratio_to_gt": 1.442505337139144,
+        "motion_spread_ratio_to_gt": 0.639064991101065,
+        "left_forearm_velocity_rms_deg_per_frame": 8.377864654254955,
+        "left_forearm_velocity_p95_deg_per_frame": 16.419765721644282,
+        "left_forearm_velocity_max_deg_per_frame": 43.94999560020807,
+        "worst_boundary_entry_jump_deg": 14.630978853957732,
+        "worst_boundary_peak_deg_per_frame": 43.94999560020807,
+        "worst_boundary_path_deg": 87.4448495316537,
+        "worst_boundary_detour_ratio": 2.061059096210341
+      },
+      "blend3": {
+        "velocity_ratio_to_gt": 1.0556115260374734,
+        "acceleration_ratio_to_gt": 1.1163518163936659,
+        "jerk_ratio_to_gt": 1.132523161813888,
+        "motion_spread_ratio_to_gt": 0.6462793060920075,
+        "left_forearm_velocity_rms_deg_per_frame": 9.157014161286387,
+        "left_forearm_velocity_p95_deg_per_frame": 20.908387262175548,
+        "left_forearm_velocity_max_deg_per_frame": 45.91471464583286,
+        "worst_boundary_entry_jump_deg": 41.64060545076599,
+        "worst_boundary_peak_deg_per_frame": 45.91471464583286,
+        "worst_boundary_path_deg": 144.50877022510602,
+        "worst_boundary_detour_ratio": 3.3694596084320234
+      },
+      "blend5": {
+        "velocity_ratio_to_gt": 0.9021615739922646,
+        "acceleration_ratio_to_gt": 0.8112696661546934,
+        "jerk_ratio_to_gt": 0.7832339997768,
+        "motion_spread_ratio_to_gt": 0.6418663738823338,
+        "left_forearm_velocity_rms_deg_per_frame": 7.9719535146516325,
+        "left_forearm_velocity_p95_deg_per_frame": 16.78664294675378,
+        "left_forearm_velocity_max_deg_per_frame": 45.47467642799863,
+        "worst_boundary_entry_jump_deg": 41.96056257895608,
+        "worst_boundary_peak_deg_per_frame": 45.47467642799863,
+        "worst_boundary_path_deg": 128.50861868942684,
+        "worst_boundary_detour_ratio": 2.9856011368918427
+      },
+      "blend7": {
+        "velocity_ratio_to_gt": 0.7515764202678195,
+        "acceleration_ratio_to_gt": 0.6320721181900528,
+        "jerk_ratio_to_gt": 0.622298511534683,
+        "motion_spread_ratio_to_gt": 0.6387236336936343,
+        "left_forearm_velocity_rms_deg_per_frame": 7.01684530676089,
+        "left_forearm_velocity_p95_deg_per_frame": 14.189103572847579,
+        "left_forearm_velocity_max_deg_per_frame": 42.316061061777944,
+        "worst_boundary_entry_jump_deg": 42.316061061777944,
+        "worst_boundary_peak_deg_per_frame": 42.316061061777944,
+        "worst_boundary_path_deg": 128.1056989984048,
+        "worst_boundary_detour_ratio": 2.9441727380255625
+      }
+    },
+    "typical": {
+      "blend0": {
+        "velocity_ratio_to_gt": 1.2278797827364678,
+        "acceleration_ratio_to_gt": 1.3966407398152878,
+        "jerk_ratio_to_gt": 1.4600915484697405,
+        "motion_spread_ratio_to_gt": 0.8177132872370797,
+        "left_forearm_velocity_rms_deg_per_frame": 10.923133064247285,
+        "left_forearm_velocity_p95_deg_per_frame": 21.145851588039527,
+        "left_forearm_velocity_max_deg_per_frame": 52.71079201945601,
+        "worst_boundary_entry_jump_deg": 52.71079201945601,
+        "worst_boundary_peak_deg_per_frame": 52.71079201945601,
+        "worst_boundary_path_deg": 73.58772215117594,
+        "worst_boundary_detour_ratio": 1.6400372447272333
+      },
+      "blend3": {
+        "velocity_ratio_to_gt": 1.19905156309431,
+        "acceleration_ratio_to_gt": 1.170240960788559,
+        "jerk_ratio_to_gt": 1.0983917121048559,
+        "motion_spread_ratio_to_gt": 0.8473778767951713,
+        "left_forearm_velocity_rms_deg_per_frame": 9.823829819680112,
+        "left_forearm_velocity_p95_deg_per_frame": 20.237462661693915,
+        "left_forearm_velocity_max_deg_per_frame": 34.41033226245499,
+        "worst_boundary_entry_jump_deg": 2.7956130685998706,
+        "worst_boundary_peak_deg_per_frame": 34.41033226245499,
+        "worst_boundary_path_deg": 88.2012365442787,
+        "worst_boundary_detour_ratio": 3.39809349678777
+      },
+      "blend5": {
+        "velocity_ratio_to_gt": 0.9888009741705162,
+        "acceleration_ratio_to_gt": 0.74462869261965,
+        "jerk_ratio_to_gt": 0.6361542209067323,
+        "motion_spread_ratio_to_gt": 0.8386535244986818,
+        "left_forearm_velocity_rms_deg_per_frame": 8.28251550763644,
+        "left_forearm_velocity_p95_deg_per_frame": 16.670929754466894,
+        "left_forearm_velocity_max_deg_per_frame": 30.2515598191631,
+        "worst_boundary_entry_jump_deg": 10.74902621708404,
+        "worst_boundary_peak_deg_per_frame": 30.2515598191631,
+        "worst_boundary_path_deg": 69.12467719275547,
+        "worst_boundary_detour_ratio": 1.3241813201081296
+      },
+      "blend7": {
+        "velocity_ratio_to_gt": 0.8530942851688252,
+        "acceleration_ratio_to_gt": 0.5667943384868873,
+        "jerk_ratio_to_gt": 0.49278640823340764,
+        "motion_spread_ratio_to_gt": 0.8284318707542782,
+        "left_forearm_velocity_rms_deg_per_frame": 7.118296737199612,
+        "left_forearm_velocity_p95_deg_per_frame": 14.109935830882304,
+        "left_forearm_velocity_max_deg_per_frame": 19.970214298001203,
+        "worst_boundary_entry_jump_deg": 2.003793472254949,
+        "worst_boundary_peak_deg_per_frame": 19.970214298001203,
+        "worst_boundary_path_deg": 86.90394086512057,
+        "worst_boundary_detour_ratio": 1.030072429391932
+      }
+    },
+    "energetic": {
+      "blend0": {
+        "velocity_ratio_to_gt": 1.2268379740354574,
+        "acceleration_ratio_to_gt": 1.6681881003814791,
+        "jerk_ratio_to_gt": 1.9771937883638628,
+        "motion_spread_ratio_to_gt": 0.8590309733362957,
+        "left_forearm_velocity_rms_deg_per_frame": 13.318494476030258,
+        "left_forearm_velocity_p95_deg_per_frame": 20.3093126312041,
+        "left_forearm_velocity_max_deg_per_frame": 108.52406710619655,
+        "worst_boundary_entry_jump_deg": 108.52406710619655,
+        "worst_boundary_peak_deg_per_frame": 108.52406710619655,
+        "worst_boundary_path_deg": 197.79104490556043,
+        "worst_boundary_detour_ratio": 2.293282429772986
+      },
+      "blend3": {
+        "velocity_ratio_to_gt": 1.1445407994863597,
+        "acceleration_ratio_to_gt": 1.3033816447624689,
+        "jerk_ratio_to_gt": 1.3610052525993466,
+        "motion_spread_ratio_to_gt": 0.8617800313738646,
+        "left_forearm_velocity_rms_deg_per_frame": 10.79713709686855,
+        "left_forearm_velocity_p95_deg_per_frame": 27.832760644527156,
+        "left_forearm_velocity_max_deg_per_frame": 44.76098441688853,
+        "worst_boundary_entry_jump_deg": 10.071074726722829,
+        "worst_boundary_peak_deg_per_frame": 44.76098441688853,
+        "worst_boundary_path_deg": 114.69169127592598,
+        "worst_boundary_detour_ratio": 1.3766384829114144
+      },
+      "blend5": {
+        "velocity_ratio_to_gt": 0.9613350933821024,
+        "acceleration_ratio_to_gt": 0.9174689474672321,
+        "jerk_ratio_to_gt": 0.9211902067388976,
+        "motion_spread_ratio_to_gt": 0.8399948659254916,
+        "left_forearm_velocity_rms_deg_per_frame": 9.148152611213316,
+        "left_forearm_velocity_p95_deg_per_frame": 20.47625698146092,
+        "left_forearm_velocity_max_deg_per_frame": 31.663488617304274,
+        "worst_boundary_entry_jump_deg": 10.170252842069525,
+        "worst_boundary_peak_deg_per_frame": 31.663488617304274,
+        "worst_boundary_path_deg": 111.50496311155247,
+        "worst_boundary_detour_ratio": 1.3346930894643318
+      },
+      "blend7": {
+        "velocity_ratio_to_gt": 0.8206781053590705,
+        "acceleration_ratio_to_gt": 0.6872417847763728,
+        "jerk_ratio_to_gt": 0.6918395399152862,
+        "motion_spread_ratio_to_gt": 0.8319152311301232,
+        "left_forearm_velocity_rms_deg_per_frame": 8.069956062829219,
+        "left_forearm_velocity_p95_deg_per_frame": 16.896027921159657,
+        "left_forearm_velocity_max_deg_per_frame": 21.96698564998122,
+        "worst_boundary_entry_jump_deg": 3.1852678399317194,
+        "worst_boundary_peak_deg_per_frame": 21.96698564998122,
+        "worst_boundary_path_deg": 94.43280176721662,
+        "worst_boundary_detour_ratio": 1.0685055056063204
+      }
+    }
+  }
+}

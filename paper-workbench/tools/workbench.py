@@ -174,7 +174,7 @@ def dashboard_markdown(config: dict, data: dict) -> str:
     warnings = "\n".join(warning_lines)
     return f"""# 论文动态总览
 
-> 自动生成：{now}  
+> 自动生成：{now}
 > 生成命令：`.\\.venv\\Scripts\\python.exe paper-workbench\\tools\\workbench.py update`
 
 ## 总体状态
@@ -206,6 +206,7 @@ def dashboard_markdown(config: dict, data: dict) -> str:
 - [任务看板](tasks.md)
 - [主张与证据台账](claims.md)
 - [实验台账](experiments.md)
+- [决策日志](decisions.md) / [详细验证记录](records/README.md)
 - [文献台账](literature.md) / [BibTeX](references.bib)
 - [图表台账](figures.md) / [图表文件](../{config['figures_dir']})
 - [写作路线](../{config['roadmap']})

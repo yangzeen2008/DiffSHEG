@@ -750,8 +750,19 @@ class UniDiffuser(nn.Module):
             # DDPM mode: predict clean expression via eps parameterization
             expr_cond = self._predict_xstart_from_eps(expression, timesteps, exp_noise_t.detach(), sqrt_alphas)
         else:
-            # Flow Matching mode: use the predicted noise/velocity as conditioning
-            expr_cond = exp_noise_t.detach()
+            if getattr(self.opt, 'fm_expression_condition', 'x0') == 'velocity':
+                # Backward-compatible path for checkpoints trained before the
+                # clean-expression conditioning fix.
+                expr_cond = exp_noise_t.detach()
+            else:
+                # Reconstruct the clean expression state from x_t and the
+                # predicted vector field. Passing the field itself injects the
+                # random noise endpoint into the gesture condition.
+                t_continuous = (timesteps / 1000.0).to(expression.dtype)
+                t_expand = t_continuous.view(
+                    expression.shape[0], *([1] * (expression.ndim - 1))
+                )
+                expr_cond = (expression - t_expand * exp_noise_t).detach()
         audio_emb = torch.cat((audio_emb, expr_cond), dim=-1)
         
         

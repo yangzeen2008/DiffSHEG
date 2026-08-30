@@ -1,0 +1,45 @@
+{
+  "blender_version": "5.2.1 LTS",
+  "input_blend": "F:\\study\\DiffSHEG\\assets\\face_models\\microsoft_rocketbox_female_adult_01_arkit\\rocketbox_arkit_clay.blend",
+  "render_variant": "texture_free_clay",
+  "fps": 15,
+  "resolution": [
+    640,
+    640
+  ],
+  "frame_count": 34,
+  "duration_seconds": 2.2666666666666666,
+  "mapped_coefficients": 51,
+  "streams": [
+    {
+      "stream_id": "ground_truth",
+      "source": "F:\\study\\DiffSHEG\\bvh_output\\full_validation\\expression_blind_preflight\\sample_02\\ground_truth.json",
+      "frame_count": 34,
+      "raw_min": 0.006608961150050163,
+      "raw_max": 0.4514349102973938,
+      "clipped_low_values": 0,
+      "clipped_high_values": 0,
+      "frame_dir": "F:\\study\\DiffSHEG\\bvh_output\\face_model_validation\\sample_02_clay_compare\\frames\\ground_truth"
+    },
+    {
+      "stream_id": "blend5",
+      "source": "F:\\study\\DiffSHEG\\bvh_output\\full_validation\\expression_blind_preflight\\sample_02\\candidate_A.json",
+      "frame_count": 34,
+      "raw_min": 0.006614126730710268,
+      "raw_max": 0.49594998359680176,
+      "clipped_low_values": 0,
+      "clipped_high_values": 0,
+      "frame_dir": "F:\\study\\DiffSHEG\\bvh_output\\face_model_validation\\sample_02_clay_compare\\frames\\blend5"
+    },
+    {
+      "stream_id": "blend7",
+      "source": "F:\\study\\DiffSHEG\\bvh_output\\full_validation\\expression_blind_preflight\\sample_02\\candidate_B.json",
+      "frame_count": 34,
+      "raw_min": 0.006614259444177151,
+      "raw_max": 0.49518072605133057,
+      "clipped_low_values": 0,
+      "clipped_high_values": 0,
+      "frame_dir": "F:\\study\\DiffSHEG\\bvh_output\\face_model_validation\\sample_02_clay_compare\\frames\\blend7"
+    }
+  ]
+}

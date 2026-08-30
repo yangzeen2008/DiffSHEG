@@ -1,5 +1,6 @@
 import numpy
 import os
+import random
 from os.path import join as pjoin
 
 import utils.paramUtil as paramUtil
@@ -9,6 +10,7 @@ from options.train_options import TrainCompOptions
 from models import MotionTransformer, UniDiffuser
 from trainers import DDPMTrainer_beat, DDPMTrainer_show, DDPMTrainer
 from datasets import ShowDataset
+from utils.test_selection import IndexedDatasetView, parse_test_window_ranges
 
 from mmcv.runner import get_dist_info, init_dist
 from mmcv.parallel import MMDistributedDataParallel, MMDataParallel
@@ -26,6 +28,75 @@ import torch.utils.data.distributed
 
 import sys
 sys.path.append(os.path.join(sys.path[2], "A_TalkSHOW_ori"))
+
+
+def validate_beat_training_data(dataset, opt, sample_count=8):
+    """Fail fast on schema/finite-value errors before the long train loop."""
+    if len(dataset) <= 0:
+        raise RuntimeError("BEAT training cache contains no samples")
+
+    indices = numpy.linspace(
+        0, len(dataset) - 1, num=min(sample_count, len(dataset)), dtype=int
+    )
+    total_squares = 0.0
+    total_values = 0
+    max_abs = 0.0
+    for index in numpy.unique(indices):
+        sample = dataset[int(index)]
+        gesture_key = 'pose_6d' if getattr(opt, 'rot_6d', False) else (
+            'pose_axis_angle' if opt.axis_angle else 'pose'
+        )
+        required = [gesture_key, 'facial', 'aud_feat', 'id']
+        if opt.addHubert or opt.expAddHubert:
+            required.append('pretrain_aud_feat')
+        missing = [key for key in required if key not in sample]
+        if missing:
+            raise RuntimeError(f"BEAT cache sample {index} is missing fields: {missing}")
+
+        gesture = sample[gesture_key]
+        facial = sample['facial']
+        if opt.expression_only or opt.gesCondition_expression_only:
+            motion = facial
+        elif opt.gesture_only or opt.expCondition_gesture_only is not None or opt.textExpEmoCondition_gesture_only:
+            motion = gesture
+        else:
+            motion = torch.cat((gesture, facial), dim=-1)
+        if motion.shape != (opt.n_poses, opt.net_dim_pose):
+            raise RuntimeError(
+                f"BEAT cache sample {index} motion shape {tuple(motion.shape)}; "
+                f"expected {(opt.n_poses, opt.net_dim_pose)}"
+            )
+        if sample['aud_feat'].shape[:1] != (opt.n_poses,):
+            raise RuntimeError(
+                f"BEAT cache sample {index} audio length {sample['aud_feat'].shape[0]}; "
+                f"expected {opt.n_poses}"
+            )
+        if opt.addHubert or opt.expAddHubert:
+            hubert = sample['pretrain_aud_feat']
+            if hubert.shape != (opt.n_poses, 1024):
+                raise RuntimeError(
+                    f"BEAT cache sample {index} HuBERT shape {tuple(hubert.shape)}; "
+                    f"expected {(opt.n_poses, 1024)}"
+                )
+
+        tensors = [sample[key] for key in required if torch.is_tensor(sample[key])]
+        if any(not torch.isfinite(tensor.float()).all() for tensor in tensors):
+            raise RuntimeError(f"BEAT cache sample {index} contains NaN or Inf")
+        motion_float = motion.float()
+        max_abs = max(max_abs, motion_float.abs().max().item())
+        total_squares += motion_float.square().sum().item()
+        total_values += motion_float.numel()
+
+    rms = (total_squares / max(total_values, 1)) ** 0.5
+    print(
+        f"BEAT preflight passed: {len(numpy.unique(indices))} samples, "
+        f"motion RMS={rms:.4f}, max_abs={max_abs:.4f}"
+    )
+    if rms > 10.0 or max_abs > 100.0:
+        raise RuntimeError(
+            "BEAT normalized motion magnitude is implausibly large. "
+            "Rebuild the versioned motion cache before training."
+        )
 
 
 
@@ -61,7 +132,12 @@ def build_fgd_val_model(opt):
     eval_model_module = __import__(f"models.motion_autoencoder", fromlist=["something"])
     import copy
     eval_opt = copy.deepcopy(opt)
-    eval_opt.net_dim_pose = opt.split_pos
+    if opt.expression_only or opt.gesCondition_expression_only:
+        eval_opt.net_dim_pose = opt.expression_dim
+    else:
+        # The BEAT gesture FGD encoder is trained on normalized axis-angle,
+        # including when the generator itself uses 6D rotations.
+        eval_opt.net_dim_pose = opt.split_pos // 2 if getattr(opt, 'rot_6d', False) else opt.split_pos
     eval_model = getattr(eval_model_module, 'HalfEmbeddingNet')(eval_opt)
 
     print(f"init 'HalfEmbeddingNet' success with net_dim_pose={eval_opt.net_dim_pose}")
@@ -70,6 +146,13 @@ def build_fgd_val_model(opt):
 def main():
     parser = TrainCompOptions()
     opt = parser.parse()
+
+    if opt.mode == 'train' and opt.allow_legacy_motion_cache:
+        raise ValueError("--allow_legacy_motion_cache is diagnostic-only and cannot be used for training")
+    if opt.mode != 'prepare_cache' and (opt.rebuild_motion_cache or opt.adopt_motion_cache):
+        raise ValueError(
+            "--rebuild_motion_cache/--adopt_motion_cache require --mode prepare_cache"
+        )
 
     if opt.dist_url == "env://" and opt.world_size == -1:
         opt.world_size = int(os.environ["WORLD_SIZE"])
@@ -110,9 +193,18 @@ def main_worker(gpu_id, ngpus_per_node, opt):
         dist.init_process_group(backend=opt.dist_backend, init_method=opt.dist_url,
                                 world_size=opt.world_size, rank=opt.rank)
 
+    seed = int(getattr(opt, 'seed', 1234)) + int(getattr(opt, 'rank', 0))
+    random.seed(seed)
+    numpy.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    if getattr(opt, 'deterministic', False):
+        cudnn.deterministic = True
+        cudnn.benchmark = False
 
-    opt.device = torch.device("cuda")
-    torch.autograd.set_detect_anomaly(True)
+
+    torch.autograd.set_detect_anomaly(bool(opt.debug))
 
     opt.save_root = pjoin(opt.checkpoints_dir, opt.dataset_name, opt.name)
     opt.model_dir = pjoin(opt.save_root, 'model')
@@ -186,9 +278,29 @@ def main_worker(gpu_id, ngpus_per_node, opt):
             opt.stride = 50
         elif opt.n_poses == 34: 
             opt.stride = 10
+        from utils.window_stitching import resolve_overlap_len
+        sequential_inference = (
+            opt.mode in ("test_arbitrary_len", "test_custom_audio")
+            or getattr(opt, "sequential_test_windows", False)
+        )
+        resolved_overlap = resolve_overlap_len(
+            opt.n_poses,
+            opt.stride,
+            opt.overlap_len,
+            auto_overlap=getattr(opt, "auto_overlap", True),
+            sequential=sequential_inference,
+        )
+        if resolved_overlap != opt.overlap_len:
+            print(
+                f"Auto overlap: {opt.overlap_len} -> {resolved_overlap} "
+                f"(n_poses={opt.n_poses}, stride={opt.stride})"
+            )
+        opt.overlap_len = resolved_overlap
         opt.pose_fps = 15
         opt.vae_length = 300
-        opt.new_cache = False
+        if opt.n_poses not in (34, 150):
+            raise ValueError("BEAT --n_poses must be 34 or 150")
+        opt.new_cache = bool(getattr(opt, 'rebuild_motion_cache', False))
         opt.audio_norm = False
         opt.facial_norm = True
         opt.pose_norm = True
@@ -246,16 +358,31 @@ def main_worker(gpu_id, ngpus_per_node, opt):
 
 
 
+    if opt.mode == 'prepare_cache':
+        if opt.dataset_name.lower() != 'beat':
+            raise ValueError("--mode prepare_cache currently supports BEAT only")
+        if opt.rebuild_motion_cache and opt.adopt_motion_cache:
+            raise ValueError("Choose only one of --rebuild_motion_cache or --adopt_motion_cache")
+        dataset_module = __import__(f"datasets.{opt.dataset_name}", fromlist=["something"])
+        if opt.cache_splits == 'all':
+            splits = ['train', 'val', 'test']
+        elif opt.cache_splits == 'train_val':
+            splits = ['train', 'val']
+        else:
+            splits = [opt.cache_splits]
+        for split in splits:
+            dataset = dataset_module.BeatDataset(
+                opt, split, build_cache=True, validate_hubert=False
+            )
+            print(f"Prepared BEAT {split} motion cache: {len(dataset)} samples")
+        print("Motion cache preparation complete. Build the aligned HuBERT cache next.")
+        return
+
     print("=> creating model '{}'".format(opt.model_base))
     model = build_models(opt, opt.net_dim_pose, opt.audio_dim, opt.audio_latent_dim, opt.style_dim)
 
     if opt.no_fgd == False:
-        # FGD eval model uses gesture-only euler dims (141), not full net_dim_pose
-        # For 6D mode, eval code converts 6D→euler before feeding FGD, so still 141
-        orig_net_dim = opt.net_dim_pose
-        opt.net_dim_pose = 141  # always 141 for gesture-only FGD autoencoder
         eval_model = build_fgd_val_model(opt)
-        opt.net_dim_pose = orig_net_dim  # restore for main model
     else:
         eval_model = None
 
@@ -321,6 +448,7 @@ def main_worker(gpu_id, ngpus_per_node, opt):
         device = torch.device("mps")
     else:
         device = torch.device("cpu")
+    opt.device = device
 
     if opt.dataset_name == 'beat':
         runner = DDPMTrainer_beat(opt, model, eval_model=eval_model)
@@ -333,6 +461,7 @@ def main_worker(gpu_id, ngpus_per_node, opt):
         if opt.dataset_name.lower() == 'beat':
             train_dataset = __import__(f"datasets.{opt.dataset_name}", fromlist=["something"]).BeatDataset(opt, "train")  
             val_dataset = __import__(f"datasets.{opt.dataset_name}", fromlist=["something"]).BeatDataset(opt, "val")
+            validate_beat_training_data(train_dataset, opt)
         
         elif opt.dataset_name.lower() == 'talkshow':
             train_dataset = ShowDataset(opt, 'data/SHOW/cached_data/talkshow_train_cache')
@@ -368,12 +497,25 @@ def main_worker(gpu_id, ngpus_per_node, opt):
         runner.train(train_dataset, val_dataset)
 
     elif "test" in opt.mode:
+        split = "val" if opt.test_on_val else "test"
         if opt.dataset_name.lower() == 'beat':
-            split = "val" if opt.test_on_val else "test"
             test_dataset = __import__(f"datasets.{opt.dataset_name}", fromlist=["something"]).BeatDataset(opt, split)
 
         elif opt.dataset_name.lower() == 'talkshow':
             test_dataset = ShowDataset(opt, 'data/SHOW/cached_data/talkshow_test_cache')
+
+        selected_indices = parse_test_window_ranges(opt.test_window_ranges)
+        if selected_indices:
+            if max(selected_indices) >= len(test_dataset):
+                raise IndexError(
+                    f"test_window_ranges selects index {max(selected_indices)}, "
+                    f"but the {split} dataset contains only {len(test_dataset)} windows"
+                )
+            test_dataset = IndexedDatasetView(test_dataset, selected_indices)
+            print(
+                f"Selected {len(selected_indices)} cached test windows from "
+                f"{opt.test_window_ranges}"
+            )
                 
         if opt.mode == "test":
             results_dir = runner.test(test_dataset)

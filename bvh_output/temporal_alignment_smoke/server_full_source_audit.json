@@ -1,0 +1,69 @@
+{
+  "cache_root": "/root/autodl-tmp/DiffSHEG/data/BEAT/beat_cache/beat_4english_15_141_sync_v1",
+  "splits": [
+    {
+      "split": "train",
+      "manifest_id": "ca16b939aac1463e6ecf4630046adcec37ddd7396b86aa8cd4048f4c9e594f1c",
+      "clips": 416,
+      "skipped_clips": 0,
+      "trimmed_clips": 22,
+      "total_frames": 396330,
+      "maximum_audio_overhang_seconds": 3.799999999999997,
+      "maximum_recorded_source_trim_seconds": 20.963729166666667
+    },
+    {
+      "split": "val",
+      "manifest_id": "9197df89fbf82124aeb0fe70350f750a26c7cc3e8eb336a7c96cc5e1fe575001",
+      "clips": 52,
+      "skipped_clips": 0,
+      "trimmed_clips": 5,
+      "total_frames": 47546,
+      "maximum_audio_overhang_seconds": 0.8666666666666671,
+      "maximum_recorded_source_trim_seconds": 0.8166666666666842
+    }
+  ],
+  "statistics": {
+    "train/bvh_rot/bvh_mean.npy": {
+      "shape": [
+        141
+      ],
+      "min": -658.4508056640625,
+      "max": 658.2510375976562
+    },
+    "train/bvh_rot/bvh_std.npy": {
+      "shape": [
+        141
+      ],
+      "min": 0.14989472925662994,
+      "max": 2252.125244140625
+    },
+    "train/facial52/json_mean.npy": {
+      "shape": [
+        51
+      ],
+      "min": 0.00658870255574584,
+      "max": 0.3510895371437073
+    },
+    "train/facial52/json_std.npy": {
+      "shape": [
+        51
+      ],
+      "min": 0.015182159841060638,
+      "max": 0.2662070393562317
+    },
+    "train/axis_angle_mean.npy": {
+      "shape": [
+        141
+      ],
+      "min": -0.9968482255935669,
+      "max": 1.441015362739563
+    },
+    "train/axis_angle_std.npy": {
+      "shape": [
+        141
+      ],
+      "min": 0.004085857886821032,
+      "max": 2.5417187213897705
+    }
+  }
+}

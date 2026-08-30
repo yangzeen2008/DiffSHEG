@@ -1,0 +1,29 @@
+{
+  "temporal_alignment_version": 1,
+  "split": "train",
+  "target_pose_fps": 15,
+  "target_facial_fps": 15,
+  "audio_sample_rate": 16000,
+  "clip_count": 1,
+  "clips": [
+    {
+      "clip": "1_wayne_0_100_100",
+      "target_fps": 15,
+      "target_frames": 855,
+      "aligned_duration_seconds": 57.0,
+      "source": {
+        "audio_sample_rate": 16000,
+        "audio_samples": 912000,
+        "audio_duration_seconds": 57.0,
+        "motion_fps": 120.0,
+        "motion_frames": 6840,
+        "motion_duration_seconds": 57.0,
+        "facial_fps": 60.0,
+        "facial_frames": 3420,
+        "facial_duration_seconds": 57.000000000000014
+      },
+      "maximum_source_duration_delta_seconds": 1.4210854715202004e-14
+    }
+  ],
+  "manifest_id": "823fc2493db10677fc130acdc1cd4e90f0b442ba5ee53517cfab8782c1873175"
+}

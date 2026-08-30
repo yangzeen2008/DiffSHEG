@@ -1,0 +1,52 @@
+{
+  "blender_version": "5.2.1 LTS",
+  "input_blend": "F:\\study\\DiffSHEG\\assets\\face_models\\microsoft_rocketbox_female_adult_01_arkit\\rocketbox_arkit_clean_clay.blend",
+  "render_variant": "clean_clay_textured_eyes",
+  "fps": 15,
+  "resolution": [
+    512,
+    512
+  ],
+  "frame_count": 1,
+  "duration_seconds": 0.06666666666666667,
+  "mapped_coefficients": 51,
+  "head_driver": "Bip01 Head",
+  "head_motion_scale": 0.7,
+  "head_motion_max_degrees": 22.0,
+  "eye_safety_profile": "rocketbox_conservative",
+  "frame_start": 79,
+  "streams": [
+    {
+      "stream_id": "frame79",
+      "source": "F:\\study\\DiffSHEG\\bvh_output\\temporal_alignment_smoke\\render_input\\ground_truth_aligned.json",
+      "source_frame_count": 225,
+      "frame_start": 79,
+      "frame_count": 1,
+      "raw_min": 0.0,
+      "raw_max": 0.7543851137161223,
+      "clipped_low_values": 0,
+      "clipped_high_values": 0,
+      "head_pose_frames": 1,
+      "eye_safety": {
+        "profile": "rocketbox_conservative",
+        "adjusted_frames": 1,
+        "adjusted_values": 6,
+        "max_absolute_adjustment": 0.35438511371612225,
+        "channel_adjustments": {
+          "eyeLookUpLeft": 1,
+          "eyeLookUpRight": 1,
+          "eyeSquintLeft": 1,
+          "eyeSquintRight": 1,
+          "eyeWideLeft": 1,
+          "eyeWideRight": 1
+        }
+      },
+      "applied_head_angle_degrees": {
+        "minimum": 4.652830303657998,
+        "maximum": 4.652830303657998,
+        "mean": 4.652830303657998
+      },
+      "frame_dir": "F:\\study\\DiffSHEG\\bvh_output\\eye_safety_ablation\\rocketbox_conservative\\frame79"
+    }
+  ]
+}

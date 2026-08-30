@@ -1,0 +1,126 @@
+F:\conda\envs\diffsheg\lib\site-packages\librosa\util\files.py:10: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import resource_filename
+{
+  "experiment": "beat_FM_aa_x0_aligned_v1",
+  "checkpoint": "pck_best.tar",
+  "checkpoint_epoch": 479,
+  "prediction_result": "BestPCK_e479_sequential_overlap24_long3_so3release_blend3",
+  "ground_truth_result": "BestPCK_e479_sequential_overlap24_long3_diverse20",
+  "inference": "RK4, 50 steps, overlap 24, transition blend 3",
+  "segments": [
+    {
+      "label": "quiet",
+      "source_window_start": 3571,
+      "window_count": 20,
+      "frames": 224,
+      "duration_seconds": 14.933333333333334,
+      "audio_rms": 0.05297874884645912,
+      "overlap_rms": {
+        "gesture_max": 0.0,
+        "expression_max": 0.0,
+        "ground_truth_max": 0.0
+      },
+      "audio_step_samples": [
+        10666,
+        10667
+      ],
+      "prediction": {
+        "velocity_rms": 2.1821061356681515,
+        "acceleration_rms": 2.3505874504087947,
+        "jerk_rms": 3.517349167907788
+      },
+      "ground_truth": {
+        "velocity_rms": 2.067148834438445,
+        "acceleration_rms": 2.105597371626341,
+        "jerk_rms": 3.105763560962657
+      },
+      "ratios": {
+        "velocity": 1.0556115260374734,
+        "acceleration": 1.1163518163936659,
+        "jerk": 1.132523161813888
+      },
+      "motion_spread_degrees": {
+        "prediction": 12.99932169046966,
+        "ground_truth": 20.114092417836158,
+        "ratio": 0.6462793060920075
+      },
+      "audio_path": "F:\\study\\DiffSHEG\\bvh_output\\long_validation_trials\\so3_release_blend3\\quiet\\audio.wav"
+    },
+    {
+      "label": "typical",
+      "source_window_start": 3799,
+      "window_count": 20,
+      "frames": 224,
+      "duration_seconds": 14.933333333333334,
+      "audio_rms": 0.10169054308887561,
+      "overlap_rms": {
+        "gesture_max": 0.0,
+        "expression_max": 0.0,
+        "ground_truth_max": 0.0
+      },
+      "audio_step_samples": [
+        10666,
+        10667
+      ],
+      "prediction": {
+        "velocity_rms": 2.4786441707144538,
+        "acceleration_rms": 2.583047263038343,
+        "jerk_rms": 3.8070913864752467
+      },
+      "ground_truth": {
+        "velocity_rms": 2.067170626355707,
+        "acceleration_rms": 2.2072781158657904,
+        "jerk_rms": 3.466059825942869
+      },
+      "ratios": {
+        "velocity": 1.19905156309431,
+        "acceleration": 1.170240960788559,
+        "jerk": 1.0983917121048559
+      },
+      "motion_spread_degrees": {
+        "prediction": 17.344164502103627,
+        "ground_truth": 20.468040265224047,
+        "ratio": 0.8473778767951713
+      },
+      "audio_path": "F:\\study\\DiffSHEG\\bvh_output\\long_validation_trials\\so3_release_blend3\\typical\\audio.wav"
+    },
+    {
+      "label": "energetic",
+      "source_window_start": 944,
+      "window_count": 20,
+      "frames": 224,
+      "duration_seconds": 14.933333333333334,
+      "audio_rms": 0.1500108282402649,
+      "overlap_rms": {
+        "gesture_max": 0.0,
+        "expression_max": 0.0,
+        "ground_truth_max": 0.0
+      },
+      "audio_step_samples": [
+        10666,
+        10667
+      ],
+      "prediction": {
+        "velocity_rms": 2.132294267471538,
+        "acceleration_rms": 2.1703111544053426,
+        "jerk_rms": 3.194799503977898
+      },
+      "ground_truth": {
+        "velocity_rms": 1.8630128942790476,
+        "acceleration_rms": 1.665138651542745,
+        "jerk_rms": 2.3473821999409905
+      },
+      "ratios": {
+        "velocity": 1.1445407994863597,
+        "acceleration": 1.3033816447624689,
+        "jerk": 1.3610052525993466
+      },
+      "motion_spread_degrees": {
+        "prediction": 13.368884009859052,
+        "ground_truth": 15.513104879613126,
+        "ratio": 0.8617800313738646
+      },
+      "audio_path": "F:\\study\\DiffSHEG\\bvh_output\\long_validation_trials\\so3_release_blend3\\energetic\\audio.wav"
+    }
+  ]
+}

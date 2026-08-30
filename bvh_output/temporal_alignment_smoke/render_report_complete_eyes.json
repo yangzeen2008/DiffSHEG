@@ -1,0 +1,34 @@
+{
+  "blender_version": "5.2.1 LTS",
+  "input_blend": "F:\\study\\DiffSHEG\\assets\\face_models\\microsoft_rocketbox_female_adult_01_arkit\\rocketbox_arkit_clean_clay.blend",
+  "render_variant": "clean_clay_complete_eyes",
+  "fps": 15,
+  "resolution": [
+    512,
+    512
+  ],
+  "frame_count": 225,
+  "duration_seconds": 15.0,
+  "mapped_coefficients": 51,
+  "head_driver": "Bip01 Head",
+  "head_motion_scale": 0.7,
+  "head_motion_max_degrees": 22.0,
+  "streams": [
+    {
+      "stream_id": "ground_truth_complete_eyes",
+      "source": "F:\\study\\DiffSHEG\\bvh_output\\temporal_alignment_smoke\\render_input\\ground_truth_aligned.json",
+      "frame_count": 225,
+      "raw_min": 0.0,
+      "raw_max": 0.8079182505607548,
+      "clipped_low_values": 0,
+      "clipped_high_values": 0,
+      "head_pose_frames": 225,
+      "applied_head_angle_degrees": {
+        "minimum": 0.0,
+        "maximum": 12.993097886419228,
+        "mean": 5.903126658729039
+      },
+      "frame_dir": "F:\\study\\DiffSHEG\\bvh_output\\temporal_alignment_smoke\\frames_complete_eyes\\ground_truth_complete_eyes"
+    }
+  ]
+}

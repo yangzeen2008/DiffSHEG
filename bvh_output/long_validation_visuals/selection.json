@@ -1,0 +1,54 @@
+{
+  "cache": "/root/autodl-tmp/DiffSHEG/data/BEAT/beat_cache/beat_4english_15_141/val/bvh_rot_cache_len34_stride10",
+  "sample_count": 4047,
+  "continuous_group_count": 52,
+  "eligible_group_count": 52,
+  "window_count_per_segment": 20,
+  "pose_fps": 15,
+  "pose_stride_frames": 10,
+  "segments": [
+    {
+      "start": 3571,
+      "count": 20,
+      "end_exclusive": 3591,
+      "speaker": [
+        3
+      ],
+      "duration_seconds": 14.933333333333334,
+      "audio_rms": 0.05297874884645912,
+      "audio_rms_variation": 0.03720459964861672,
+      "audio_peak": 0.43731689453125,
+      "normalized_pose_velocity_rms": 0.238401702347843,
+      "label": "quiet"
+    },
+    {
+      "start": 3799,
+      "count": 20,
+      "end_exclusive": 3819,
+      "speaker": [
+        3
+      ],
+      "duration_seconds": 14.933333333333334,
+      "audio_rms": 0.10169054308887561,
+      "audio_rms_variation": 0.06982258474043902,
+      "audio_peak": 0.734893798828125,
+      "normalized_pose_velocity_rms": 0.22655197553951717,
+      "label": "typical"
+    },
+    {
+      "start": 944,
+      "count": 20,
+      "end_exclusive": 964,
+      "speaker": [
+        1
+      ],
+      "duration_seconds": 14.933333333333334,
+      "audio_rms": 0.1500108282402649,
+      "audio_rms_variation": 0.10444834282667444,
+      "audio_peak": 0.931610107421875,
+      "normalized_pose_velocity_rms": 0.19621516760044846,
+      "label": "energetic"
+    }
+  ],
+  "test_window_ranges": "3571:20,3799:20,944:20"
+}

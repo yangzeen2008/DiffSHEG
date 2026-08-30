@@ -118,8 +118,18 @@ data/BEAT/beat_cache/beat_4english_15_141/train/axis_angle_std.npy
 
 **正确操作：**
 ```bash
+# 新服务器：先生成带版本信息的动作 LMDB
+python runner.py --dataset_name beat --n_poses 34 --mode prepare_cache \
+    --cache_splits train_val --rebuild_motion_cache
+
+# 已有动作 LMDB：仅在全量数值/结构审计通过后验收，不重新生成
+python runner.py --dataset_name beat --n_poses 34 --mode prepare_cache \
+    --cache_splits train_val --adopt_motion_cache
+
+# HuBERT 必须在动作 LMDB 之后按 LMDB key 对齐重建
 export HF_ENDPOINT=https://hf-mirror.com
-python build_hubert_cache.py --split all
+python build_hubert_cache.py --split train --force
+python build_hubert_cache.py --split val --force
 ```
 
 ---
@@ -128,10 +138,10 @@ python build_hubert_cache.py --split all
 
 ### 5.1 性能瓶颈分析
 
-DiffSHEG 是一个**轻量级 1D 时序模型**（骨骼关节旋转角度），不是图像/视频生成模型。其特点：
-- 模型参数量小（几千万级别）
+DiffSHEG 是一个 **1D 时序模型**（骨骼关节旋转角度），不是图像/视频生成模型。其特点：
+- 当前 UniDiffuser 约 1.57 亿参数，但序列长度只有 34 帧
 - 显存占用低（bs=32 仅需 4GB）
-- **瓶颈在 CPU 数据加载，而非 GPU 算力**
+- 大 batch 计算阶段可以打满 GPU；epoch 交界处的 worker 重启和大 checkpoint 写盘会造成周期性空档
 
 ### 5.2 参数优化实测数据
 
@@ -140,28 +150,49 @@ DiffSHEG 是一个**轻量级 1D 时序模型**（骨骼关节旋转角度），
 | 初始版 | 32 | 4 | 4 GB | 7~46% | ~10分钟 | 3090 |
 | 优化版 | 128 | 16 | 8 GB | ~58% | ~4分钟 | 3090 |
 | 极速版 | 256 | 32 | 31 GB | ~88% | ~1.5分钟 | 3090 48G |
-| **当前版** | **512** | **32** | **31 GB** | **~86%** | **~1分钟** | **4090 48G** |
+| 4090 吞吐冒烟 | 512 | 32 | 峰值 39.2 GB | — | 仅单步冒烟 | 4090 48G |
+| **安全正式版（实测）** | **256** | **32** | **20.7 GB** | **30 秒均值 83.5%** | **约 40 秒** | **4090 48G** |
 
-> **推荐配置：batch_size=512, workers=32**
-> 相比初始配置，吞吐量提升约 **8 倍**。
+> **正式质量训练推荐：batch_size=256, workers=32**。`512` 适合吞吐基准，
+> 但每个 epoch 的优化器更新数会减半，不再作为默认质量配置。
 
 ### 5.3 最终训练命令
 
 ```bash
 python runner.py \
     --dataset_name beat \
-    --name beat_FM_v1 \
+    --name beat_FM_aa_x0_safe_v1 \
     --mode train \
     --flow_matching \
     --fm_sample_steps 50 \
     --n_poses 34 \
-    --batch_size 512 \
+    --num_epochs 500 \
+    --batch_size 256 \
     --no_fgd \
     --gpu_id 0 \
     --beat_cache_name beat_4english_15_141 \
-    --resume \
-    --workers 32
+    --fm_expression_condition x0 \
+    --jerk_loss_weight 10 \
+    --eval_every_e 10 \
+    --max_eval_samples 512 \
+    --seed 1234 \
+    --workers 32 \
+    --persistent_workers True \
+    --prefetch_factor 2 \
+    --non_blocking_transfer True \
+    --latest_every_e 10 \
+    --save_every_e 50
 ```
+
+这些吞吐参数用于**下一轮或下一次恢复启动**，不会热更新已经运行的 Python
+进程。`latest_every_e=10` 表示最多损失 10 个 epoch 的进度，换取不再每个
+epoch 覆盖写入约 1.8GB checkpoint；`save_every_e=50` 仅控制带 epoch 编号的
+长期归档。checkpoint 使用临时文件完整写入后再原子替换，避免中断时破坏
+上一份可恢复文件。
+
+不要单纯为了占满 48GB 把正式质量训练改成 batch 512。它会把每个 epoch 的
+优化器更新数从约 133 次降到约 67 次，需要作为单独实验重新调学习率和训练
+轮数。当前 `batch_size=256` 是质量与吞吐的折中配置。
 
 ### 5.4 训练时长与费用预估
 
@@ -198,14 +229,17 @@ DiffSHEG 模型太轻，高端卡（A100/H100/H800）的算力无法被充分利
 # 多卡自动并行（代码会自动检测并使用所有可用 GPU）
 python runner.py \
     --dataset_name beat \
-    --name beat_FM_v1 \
+    --name beat_FM_aa_x0_safe_v1 \
     --mode train \
     --flow_matching \
     --fm_sample_steps 50 \
     --n_poses 34 \
+    --num_epochs 500 \
     --batch_size 1024 \
     --no_fgd \
     --beat_cache_name beat_4english_15_141 \
+    --fm_expression_condition x0 \
+    --seed 1234 \
     --multiprocessing_distributed \
     --workers 64
 ```
@@ -223,22 +257,31 @@ python runner.py \
 source /root/miniconda3/etc/profile.d/conda.sh || source /opt/conda/etc/profile.d/conda.sh
 conda activate diffsheg
 cd /root/autodl-tmp/DiffSHEG
+export OMP_NUM_THREADS=8
 
 # Step 1: 数据预处理（纯 CPU，约 30 分钟）
 echo 'Starting Preprocessing...'
 python preprocess_beat.py
 
-# Step 2: HuBERT 特征提取（GPU + CPU，约 10 分钟）
+# Step 2: 生成带版本信息的动作 LMDB
+echo 'Building versioned motion cache...'
+python runner.py --dataset_name beat --n_poses 34 --mode prepare_cache \
+    --cache_splits train_val --rebuild_motion_cache
+
+# Step 3: HuBERT 特征提取（必须在动作 LMDB 之后）
 echo 'Starting HuBERT...'
 export HF_ENDPOINT=https://hf-mirror.com
-python build_hubert_cache.py --split all
+python build_hubert_cache.py --split train --force
+python build_hubert_cache.py --split val --force
 
-# Step 3: 正式训练（GPU 全速，约 8 小时跑 500 Epoch）
+# Step 4: 正式训练（全新实验，不续训无配置的旧 checkpoint）
 echo 'Starting Training...'
-python runner.py --dataset_name beat --name beat_FM_v1 --mode train \
+python runner.py --dataset_name beat --name beat_FM_aa_x0_safe_v1 --mode train \
     --flow_matching --fm_sample_steps 50 --n_poses 34 \
-    --batch_size 512 --no_fgd --gpu_id 0 \
-    --beat_cache_name beat_4english_15_141 --resume --workers 32
+    --fm_expression_condition x0 --num_epochs 500 \
+    --batch_size 256 --no_fgd --gpu_id 0 --seed 1234 \
+    --jerk_loss_weight 10 --eval_every_e 10 --max_eval_samples 512 \
+    --beat_cache_name beat_4english_15_141 --workers 32
 ```
 
 ### 7.2 启动与监控

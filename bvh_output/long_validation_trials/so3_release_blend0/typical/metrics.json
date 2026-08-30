@@ -1,0 +1,38 @@
+{
+  "label": "typical",
+  "source_window_start": 3799,
+  "window_count": 20,
+  "frames": 224,
+  "duration_seconds": 14.933333333333334,
+  "audio_rms": 0.10169054308887561,
+  "overlap_rms": {
+    "gesture_max": 0.0,
+    "expression_max": 0.0,
+    "ground_truth_max": 0.0
+  },
+  "audio_step_samples": [
+    10666,
+    10667
+  ],
+  "prediction": {
+    "velocity_rms": 2.5382370195688533,
+    "acceleration_rms": 3.082774540720892,
+    "jerk_rms": 5.060764658349683
+  },
+  "ground_truth": {
+    "velocity_rms": 2.067170626355707,
+    "acceleration_rms": 2.2072781158657904,
+    "jerk_rms": 3.466059825942869
+  },
+  "ratios": {
+    "velocity": 1.2278797827364678,
+    "acceleration": 1.3966407398152878,
+    "jerk": 1.4600915484697405
+  },
+  "motion_spread_degrees": {
+    "prediction": 16.736988488577264,
+    "ground_truth": 20.468040265224047,
+    "ratio": 0.8177132872370797
+  },
+  "audio_path": "F:\\study\\DiffSHEG\\bvh_output\\long_validation_trials\\so3_release_blend0\\typical\\audio.wav"
+}

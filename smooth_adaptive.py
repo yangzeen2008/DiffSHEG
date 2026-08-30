@@ -2,6 +2,7 @@ import os
 import argparse
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
+from scipy.spatial.transform import Rotation
 
 def parse_bvh_header(lines):
     """
@@ -29,7 +30,8 @@ def parse_bvh_header(lines):
             joints.append({
                 'name': current_joint,
                 'start_idx': channel_count,
-                'num_channels': num_channels
+                'num_channels': num_channels,
+                'channels': parts[2:2 + num_channels],
             })
             channel_count += num_channels
         elif line_strip.startswith('MOTION'):
@@ -40,6 +42,51 @@ def parse_bvh_header(lines):
             break
 
     return header_lines, joints, data_start_line
+
+def _unwrap_degrees(values):
+    """Choose temporally continuous Euler branches after conversion."""
+    return np.rad2deg(np.unwrap(np.deg2rad(values), axis=0))
+
+
+def smooth_euler_rotation(values, order, sigma, mode='quaternion'):
+    """Smooth Euler rotations without averaging across the +/-180 seam."""
+    if sigma <= 0:
+        return values.copy()
+
+    if mode == 'euler':
+        continuous = _unwrap_degrees(values)
+        return gaussian_filter1d(continuous, sigma=sigma, axis=0, mode='nearest')
+
+    # Convert to unit quaternions, make quaternion signs temporally
+    # continuous, filter in R4, then project back to the unit sphere.
+    quaternions = Rotation.from_euler(order, values, degrees=True).as_quat()
+    for frame in range(1, len(quaternions)):
+        if np.dot(quaternions[frame - 1], quaternions[frame]) < 0:
+            quaternions[frame] *= -1.0
+
+    filtered = gaussian_filter1d(quaternions, sigma=sigma, axis=0, mode='nearest')
+    norms = np.linalg.norm(filtered, axis=-1, keepdims=True)
+    filtered = filtered / np.maximum(norms, 1e-12)
+    euler = Rotation.from_quat(filtered).as_euler(order, degrees=True)
+    return _unwrap_degrees(euler)
+
+
+def _smooth_joint_rotation(smoothed_data, motion_data, joint, sigma, rotation_mode):
+    channels = joint.get('channels', [])
+    start = joint['start_idx']
+    rotation_offsets = [
+        offset for offset, channel in enumerate(channels)
+        if channel.lower().endswith('rotation')
+    ]
+    if len(rotation_offsets) != 3:
+        return
+
+    rotation_indices = [start + offset for offset in rotation_offsets]
+    order = ''.join(channels[offset][0].upper() for offset in rotation_offsets)
+    smoothed_data[:, rotation_indices] = smooth_euler_rotation(
+        motion_data[:, rotation_indices], order, sigma, mode=rotation_mode
+    )
+
 
 def apply_smoothing(motion_data, joints, args):
     """
@@ -57,45 +104,45 @@ def apply_smoothing(motion_data, joints, args):
         
         # Decide sigma based on joint name
         if name == 'hips':
-            # Hips translation (first 3 channels) is kept raw or smoothed very lightly
-            if num_ch >= 6:
-                # Translation (channels 0, 1, 2)
+            # Smooth translations linearly and rotations on SO(3).
+            channels = j.get('channels', [])
+            translation_offsets = [
+                offset for offset, channel in enumerate(channels)
+                if channel.lower().endswith('position')
+            ]
+            if translation_offsets:
                 if args.smooth_hips_trans > 0:
-                    smoothed_data[:, start:start+3] = gaussian_filter1d(
-                        motion_data[:, start:start+3], sigma=args.smooth_hips_trans, axis=0
+                    indices = [start + offset for offset in translation_offsets]
+                    smoothed_data[:, indices] = gaussian_filter1d(
+                        motion_data[:, indices], sigma=args.smooth_hips_trans,
+                        axis=0, mode='nearest'
                     )
-                # Rotation (channels 3, 4, 5)
-                smoothed_data[:, start+3:start+6] = gaussian_filter1d(
-                    motion_data[:, start+3:start+6], sigma=args.sigma_spine, axis=0
-                )
-                print(f"  {j['name']:18s} (ROOT) -> Trans sigma={args.smooth_hips_trans}, Rot sigma={args.sigma_spine}")
-            else:
-                smoothed_data[:, start:start+num_ch] = gaussian_filter1d(
-                    motion_data[:, start:start+num_ch], sigma=args.sigma_spine, axis=0
-                )
-                print(f"  {j['name']:18s} -> Rot sigma={args.sigma_spine}")
-                
+            _smooth_joint_rotation(
+                smoothed_data, motion_data, j, args.sigma_spine, args.rotation_mode
+            )
+            print(f"  {j['name']:18s} (ROOT) -> Trans sigma={args.smooth_hips_trans}, Rot sigma={args.sigma_spine} ({args.rotation_mode})")
+
         elif any(x in name for x in ['spine', 'neck', 'chest', 'head']):
             # Spine / Neck joints
-            smoothed_data[:, start:start+num_ch] = gaussian_filter1d(
-                motion_data[:, start:start+num_ch], sigma=args.sigma_spine, axis=0
+            _smooth_joint_rotation(
+                smoothed_data, motion_data, j, args.sigma_spine, args.rotation_mode
             )
-            print(f"  {j['name']:18s} (Spine/Neck) -> sigma={args.sigma_spine}")
-            
+            print(f"  {j['name']:18s} (Spine/Neck) -> sigma={args.sigma_spine} ({args.rotation_mode})")
+
         elif any(x in name for x in ['shoulder', 'arm', 'forearm', 'hand', 'finger', 'thumb', 'index', 'middle', 'ring', 'pinky']):
             # Arm / Shoulder / Hand / Fingers
-            smoothed_data[:, start:start+num_ch] = gaussian_filter1d(
-                motion_data[:, start:start+num_ch], sigma=args.sigma_arm, axis=0
+            _smooth_joint_rotation(
+                smoothed_data, motion_data, j, args.sigma_arm, args.rotation_mode
             )
-            print(f"  {j['name']:18s} (Arm/Hand/Finger) -> sigma={args.sigma_arm}")
-            
+            print(f"  {j['name']:18s} (Arm/Hand/Finger) -> sigma={args.sigma_arm} ({args.rotation_mode})")
+
         else:
             # Other joints (e.g. legs, if present)
             if args.sigma_other > 0:
-                smoothed_data[:, start:start+num_ch] = gaussian_filter1d(
-                    motion_data[:, start:start+num_ch], sigma=args.sigma_other, axis=0
+                _smooth_joint_rotation(
+                    smoothed_data, motion_data, j, args.sigma_other, args.rotation_mode
                 )
-                print(f"  {j['name']:18s} (Other) -> sigma={args.sigma_other}")
+                print(f"  {j['name']:18s} (Other) -> sigma={args.sigma_other} ({args.rotation_mode})")
             else:
                 print(f"  {j['name']:18s} (Other) -> Left raw (sigma=0)")
                 
@@ -109,6 +156,10 @@ def main():
     parser.add_argument("--sigma_arm", type=float, default=1.5, help="Smoothing sigma for Arm, Shoulder, Hand, Fingers (default: 1.5)")
     parser.add_argument("--smooth_hips_trans", type=float, default=0.5, help="Smoothing sigma for Hips Translation (default: 0.5)")
     parser.add_argument("--sigma_other", type=float, default=0.0, help="Smoothing sigma for other joints like legs (default: 0.0)")
+    parser.add_argument(
+        "--rotation_mode", choices=["quaternion", "euler"], default="quaternion",
+        help="Rotation smoothing domain; quaternion avoids +/-180 degree averaging",
+    )
     
     args = parser.parse_args()
     

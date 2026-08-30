@@ -1,12 +1,10 @@
-from transformers import Wav2Vec2Processor, HubertModel
+from utils.hubert import load_hubert_components
 import soundfile as sf
 import numpy as np
 import torch
 
-print("Loading the Wav2Vec2 Processor...")
-wav2vec2_processor = Wav2Vec2Processor.from_pretrained("facebook/hubert-large-ls960-ft")
-print("Loading the HuBERT Model...")
-hubert_model = HubertModel.from_pretrained("facebook/hubert-large-ls960-ft")
+print("Loading the HuBERT processor and model...")
+wav2vec2_processor, hubert_model = load_hubert_components()
 
 
 def get_hubert_from_16k_wav(wav_16k_name):

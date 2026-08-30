@@ -1,0 +1,38 @@
+{
+  "label": "quiet",
+  "source_window_start": 3571,
+  "window_count": 20,
+  "frames": 224,
+  "duration_seconds": 14.933333333333334,
+  "audio_rms": 0.05297874884645912,
+  "overlap_rms": {
+    "gesture_max": 0.0,
+    "expression_max": 0.0,
+    "ground_truth_max": 0.0
+  },
+  "audio_step_samples": [
+    10666,
+    10667
+  ],
+  "prediction": {
+    "velocity_rms": 4.456249311733306,
+    "acceleration_rms": 5.535951769260631,
+    "jerk_rms": 9.140448425374617
+  },
+  "ground_truth": {
+    "velocity_rms": 2.7900945259105896,
+    "acceleration_rms": 2.956783844161045,
+    "jerk_rms": 4.566047897798733
+  },
+  "ratios": {
+    "velocity": 1.5971678630776647,
+    "acceleration": 1.8722882906008969,
+    "jerk": 2.0018292908800137
+  },
+  "motion_spread_degrees": {
+    "prediction": 16.366874902880948,
+    "ground_truth": 24.254671567193444,
+    "ratio": 0.6747926830317741
+  },
+  "audio_path": "F:\\study\\DiffSHEG\\bvh_output\\long_validation_trials\\blend10\\quiet\\audio.wav"
+}

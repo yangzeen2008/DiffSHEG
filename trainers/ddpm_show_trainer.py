@@ -952,11 +952,8 @@ class DDPMTrainer_show(object):
         cur_epoch, it, _, _, _ = self.load(model_dir)
 
         if self.opt.expAddHubert or self.opt.addHubert:
-            from transformers import Wav2Vec2Processor, HubertModel
-            print("Loading the Wav2Vec2 Processor...")
-            wav2vec2_processor = Wav2Vec2Processor.from_pretrained("facebook/hubert-large-ls960-ft")
-            print("Loading the HuBERT Model...")
-            hubert_model = HubertModel.from_pretrained("facebook/hubert-large-ls960-ft")
+            from utils.hubert import load_hubert_components
+            wav2vec2_processor, hubert_model = load_hubert_components(device=self.device)
 
         if os.path.isdir(test_audio_path):
             aud_list = os.listdir(test_audio_path)

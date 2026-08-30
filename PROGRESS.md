@@ -1,6 +1,12 @@
 # DiffSHEG 项目进展
 
-> 更新时间: 2026-06-20 16:30
+> 更新时间: 2026-08-30
+
+> **当前训练准入版本**：`beat_4english_15_141_sync_v1` 已将约 120 FPS 动作、
+> 60 FPS 表情统一重采样到 15 FPS，并与 16 kHz 音频绑定。Motion cache v3、
+> HuBERT cache v3 和 5-epoch 全数据试跑均已通过。`beat_FM_aa_x0_aligned_v1`
+> 的源时间轴仍然错位，旧 checkpoint 已降级为历史错误实验，不得作为音画同步
+> 或当前主模型证据。正式 500-epoch 新实验尚未启动，等待用户明确确认。
 
 ---
 
@@ -20,18 +26,34 @@
 
 ## 🚀 当前状态
 
-**500 Epochs 统一消融与表示对比实验及 1-Step 推理极限对比全部完成 ✅**
+**跨模态时间轴修复与 5-epoch 全数据训练准入已完成；正式重训待确认 ✅**
 
 ```
-最终模型: beat_FM_aa_velAcc (Ours, PCK=23.05%, MSE=1.0134, Div=0.5205)
-本地推理: 修复了 CPU 运行 Bug，支持本地无显卡 CPU 运行推理评估 (eval_metrics.py)
-模型下载: 成功从 SeetaCloud 同步 5 组最新模型 checkpoints 到本地 (pck_best.tar, mse_best.tar)
-1步对比: 完成 4 组 FM 消融模型在 1-Step 推理下的极限测试，并渲染生成并排视频 step1_comparison.mp4 (含配音)
-学术图表: 新增并重新生成 Figure 5 (主对比)、Figure 6 (物理消融)、Figure 7 (旋转表示) 及 Figure 8 (全指标综合图)
+有效数据: beat_4english_15_141_sync_v1
+运动缓存: train=38,468 / val=4,609，Motion cache v3，绑定 temporal manifest ID
+HuBERT缓存: train=38,468 / val=4,609，HuBERT cache v3，绑定 motion cache ID
+准入试跑: beat_FM_aa_x0_aligned_sync_pilot_v1，5 epochs / 755 steps
+试跑验证: MSE=0.13425，PCK=0.88329，SRGR=0.87668，Diversity=0.73205
+正式训练: beat_FM_aa_x0_aligned_sync_v1，尚未启动
+旧模型: beat_FM_aa_x0_aligned_v1 已废弃为同步错误实验
 ```
 
+### 2026-08-30 跨模态时间轴关键纠正
 
-### 训练配置 (FM_v6)
+复核确认，旧预处理把约 120 FPS BVH 和 60 FPS 面部 JSON 原样复制，随后数据集却把两者都按 15 FPS 取窗。这使模型和旧验证集共同学习了错误时间尺度，所以高 PCK/MSE 不能证明表情与语音同步。
+
+现已完成真实时间戳重采样、内容哈希 manifest、运动 LMDB v3、HuBERT v3 全量重建，以及 2-batch 冒烟和 5-epoch 全数据试跑。完整证据、缓存 ID、样本数量和结论边界见 [R-2026-08-30-003](paper-workbench/records/2026-08-30-cross-modal-temporal-alignment-repair.md)。
+
+[15 秒对齐 GT 视频](bvh_output/temporal_alignment_smoke/aligned_ground_truth_audio_smoke.mp4) 只用于证明新数据时间轴正确，不代表 5-epoch 模型质量。新模型完成正式训练后必须重新生成预测对比。
+
+### 2026-08-30 长序列推理与 SO(3) 边界修复
+
+三段长序列已完成 SO(3) 最短路径修复和 `blend=0/3/5/7` 受控消融。`blend=0` 的偶发边界坏帧已在放大慢放中复现；`blend=5` 是当前折中候选，但默认值仍保持 7，等待全验证集统计和去标签盲评后冻结。
+
+完整条件、数字、视觉证据和结论边界已归档到 [R-2026-08-30-001 验证记录](paper-workbench/records/2026-08-30-transition-blend-validation.md)，相关参数决策见 [D-001](paper-workbench/decisions.md)。
+
+
+### 历史训练配置 (FM_v6)
 
 | 参数 | 值 | vs v5 变化 |
 |:---|:---:|:---:|
@@ -51,7 +73,7 @@ f:\study\DiffSHEG\.venv\Scripts\python.exe -c "
 import paramiko
 ssh = paramiko.SSHClient()
 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect('connect.westd.seetacloud.com', 48360, 'root', 'Yangzeen2008#')
+ssh.connect('connect.westd.seetacloud.com', 48360, 'root', '<从安全凭据读取>')
 stdin, stdout, stderr = ssh.exec_command('tail -5 /root/autodl-tmp/DiffSHEG/logs/train_fm_v6.log')
 print(stdout.read().decode().strip())
 ssh.close()
@@ -133,6 +155,8 @@ ssh.close()
 | **FM_aa_vel** | **FM 50 RK4** | **512** | **100/0/0** | **✅ 修复** | **✅ 完成** | **PCK=23.01%, MSE=1.0240, SRGR=22.86%, Div=0.5266** |
 | **FM_aa_velAcc** | **FM 50 RK4** | **512** | **100/50/0** | **✅ 修复** | **✅ 完成** | **PCK=23.05%, MSE=1.0134, SRGR=22.87%, Div=0.5205** |
 | **FM_6d** | **FM 50 RK4** | **512** | **100/50/0** | **✅ 修复** | **✅ 完成** | **PCK=16.13%, MSE=1.1739, Div=0.6663** |
+| **aligned_v1** | **FM 50 RK4** | **256** | **100/50/10** | **⚠️ 120/60 FPS 源时间轴错位** | **已废弃** | **旧验证指标仅作错误实验历史** |
+| **aligned_sync_pilot_v1** | **FM 50 RK4** | **256** | **100/50/10** | **✅ 15 FPS/15 FPS/16 kHz manifest 绑定** | **5-epoch 准入通过** | **PCK=88.33%，不是最终模型** |
 
 ---
 
@@ -206,6 +230,8 @@ ffmpeg -y -i input.mp4 -i audio.wav -map 0:v -map 1:a -c:v copy -c:a aac -shorte
 
 ## ⏭️ 待办
 
+- [ ] 用户确认后启动 `beat_FM_aa_x0_aligned_sync_v1` 的正式 500-epoch 重训
+- [ ] 正式训练完成后重做 GT/新模型/旧错误模型的表情—语音与手势视觉对比
 - [x] ~~关节顺序修复~~ (v5 已验证)
 - [x] ~~手臂运动范围恢复~~ (v5: 100-112% of Original)
 - [x] ~~FM_v6 训练完成~~ (PCK=23.52%)

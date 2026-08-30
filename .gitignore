@@ -10,6 +10,23 @@ temp
 __pycache__
 *.pyc
 
+# Local LaTeX build intermediates (keep source .tex and deliverable .pdf)
+article/*.aux
+article/*.fdb_latexmk
+article/*.fls
+article/*.synctex.gz
+article/*.toc
+article/*.out
+article/*.bbl
+article/*.blg
+article/*.log
+
+# Regenerable motion/render payloads; keep compact JSON/Markdown/figures visible
+bvh_output/**/*.bvh
+bvh_output/**/*.wav
+bvh_output/**/*.npy
+bvh_output/**/*.npz
+
 motion_ae_fid/logs
 test.sh
 train.sh

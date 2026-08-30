@@ -1,0 +1,35 @@
+{
+  "blender_version": "5.2.1 LTS",
+  "input_blend": "F:\\study\\DiffSHEG\\assets\\face_models\\microsoft_rocketbox_female_adult_01_arkit\\rocketbox_arkit_clay.blend",
+  "render_variant": "texture_free_clay",
+  "fps": 15,
+  "resolution": [
+    512,
+    512
+  ],
+  "frame_count": 224,
+  "duration_seconds": 14.933333333333334,
+  "mapped_coefficients": 51,
+  "streams": [
+    {
+      "stream_id": "ground_truth",
+      "source": "F:\\study\\DiffSHEG\\bvh_output\\face_model_validation\\energetic_long_clay_compare_v1\\ground_truth.json",
+      "frame_count": 224,
+      "raw_min": 0.0,
+      "raw_max": 0.6688864231109619,
+      "clipped_low_values": 0,
+      "clipped_high_values": 0,
+      "frame_dir": "F:\\study\\DiffSHEG\\bvh_output\\face_model_validation\\energetic_long_clay_compare_v1\\frames\\ground_truth"
+    },
+    {
+      "stream_id": "prediction_blend7",
+      "source": "F:\\study\\DiffSHEG\\bvh_output\\face_model_validation\\energetic_long_clay_compare_v1\\prediction_blend7.json",
+      "frame_count": 224,
+      "raw_min": -0.04184376448392868,
+      "raw_max": 0.6408377885818481,
+      "clipped_low_values": 1473,
+      "clipped_high_values": 0,
+      "frame_dir": "F:\\study\\DiffSHEG\\bvh_output\\face_model_validation\\energetic_long_clay_compare_v1\\frames\\prediction_blend7"
+    }
+  ]
+}
